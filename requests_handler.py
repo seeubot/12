@@ -1,6 +1,7 @@
 # requests_handler.py
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQueryHandler
+from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.handlers import CallbackQueryHandler
 from pyrogram.enums import ChatMemberStatus
 import os
 import logging
