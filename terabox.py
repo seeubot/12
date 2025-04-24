@@ -85,6 +85,18 @@ if len(REQUEST_CHANNEL_ID) == 0:
 else:
     REQUEST_CHANNEL_ID = int(REQUEST_CHANNEL_ID)
 
+# Get admin IDs from environment variables
+ADMIN_IDS = os.environ.get('ADMIN_IDS', '')
+if len(ADMIN_IDS) == 0:
+    logging.warning("ADMIN_IDS variable is missing! Only bot owner will have admin privileges")
+    ADMIN_IDS = []
+else:
+    try:
+        ADMIN_IDS = [int(admin_id.strip()) for admin_id in ADMIN_IDS.split(',')]
+    except Exception as e:
+        logging.error(f"Error parsing ADMIN_IDS: {e}")
+        ADMIN_IDS = []
+
 USER_SESSION_STRING = os.environ.get('USER_SESSION_STRING', '')
 SPLIT_SIZE = 2093796556  # Default 2GB limit
 
@@ -99,6 +111,9 @@ last_update_time = 0
 
 # Track users in request mode
 users_in_request_mode = {}
+
+# Track pending requests
+pending_requests = {}
 
 app = Client("jetbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
@@ -130,6 +145,10 @@ async def is_user_member(client, user_id):
     except Exception as e:
         logging.error(f"Error checking membership status for user {user_id}: {e}")
         return False
+
+async def is_admin(user_id):
+    """Check if a user is an admin"""
+    return user_id in ADMIN_IDS
     
 def is_valid_url(url):
     parsed_url = urlparse(url)
@@ -145,6 +164,21 @@ def format_size(size):
     else:
         return f"{size / (1024 * 1024 * 1024):.2f} GB"
 
+def format_eta(seconds):
+    """Format ETA in a human-readable format, handling invalid values"""
+    if not seconds or seconds < 0 or seconds > 86400 * 365:  # Cap at 1 year
+        return "calculating..."
+    
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    
+    if hours > 0:
+        return f"{int(hours)}h {int(minutes)}m {int(seconds)}s"
+    elif minutes > 0:
+        return f"{int(minutes)}m {int(seconds)}s"
+    else:
+        return f"{int(seconds)}s"
+
 def generate_progress_bar(percentage, length=10):
     # Modern, clean progress bar with Unicode blocks
     filled_length = int(length * percentage // 100)
@@ -159,9 +193,9 @@ async def start_command(client: Client, message: Message):
     if message.from_user.id in users_in_request_mode:
         del users_in_request_mode[message.from_user.id]
         
-    join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/jetmirror")
-    developer_button = InlineKeyboardButton("ᴅᴇᴠᴇʟᴏᴘᴇʀ ⚡️", url="https://t.me/rtx5069")
-    repo69 = InlineKeyboardButton("ʀᴇᴘᴏ 🌐", url="https://github.com/Hrishi2861/Terabox-Downloader-Bot")
+    join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/dailydiskwala")
+    developer_button = InlineKeyboardButton("Backup", url="https://t.me/terao2")
+    repo69 = InlineKeyboardButton("Requested videos", url="https://t.me/dailydiskwala")
     request_button = InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴠɪᴅᴇᴏ 🎬", callback_data="request_video")
     
     user_mention = message.from_user.mention
@@ -171,10 +205,20 @@ async def start_command(client: Client, message: Message):
         [request_button]
     ])
     
+    # Check if user is admin and add admin commands button
+    if await is_admin(message.from_user.id):
+        admin_button = InlineKeyboardButton("ᴀᴅᴍɪɴ ᴄᴏᴍᴍᴀɴᴅs 🛠️", callback_data="admin_commands")
+        reply_markup = InlineKeyboardMarkup([
+            [join_button, developer_button], 
+            [repo69],
+            [request_button],
+            [admin_button]
+        ])
+    
     final_msg = f"ᴡᴇʟᴄᴏᴍᴇ, {user_mention}.\n\n🌟 ɪ ᴀᴍ ᴀ ᴛᴇʀᴀʙᴏx ᴅᴏᴡɴʟᴏᴀᴅᴇʀ ʙᴏᴛ. sᴇɴᴅ ᴍᴇ ᴀɴʏ ᴛᴇʀᴀʙᴏx ʟɪɴᴋ ɪ ᴡɪʟʟ ᴅᴏᴡɴʟᴏᴀᴅ ᴡɪᴛʜɪɴ ғᴇᴡ sᴇᴄᴏɴᴅs ᴀɴᴅ sᴇɴᴅ ɪᴛ ᴛᴏ ʏᴏᴜ ✨."
     final_msg += "\n\n📸 ʏᴏᴜ ᴄᴀɴ ᴀʟsᴏ ʀᴇǫᴜᴇsᴛ ᴠɪᴅᴇᴏs ʙʏ sᴇɴᴅɪɴɢ sᴄʀᴇᴇɴsʜᴏᴛs!"
     
-    video_file_id = "/app/Jet-Mirror.mp4"
+    video_file_id = "/app/tera.mp4"
     if os.path.exists(video_file_id):
         await client.send_video(
             chat_id=message.chat.id,
@@ -185,6 +229,214 @@ async def start_command(client: Client, message: Message):
     else:
         await message.reply_text(final_msg, reply_markup=reply_markup)
 
+@app.on_message(filters.command("admin"))
+async def admin_commands(client: Client, message: Message):
+    """Display admin commands"""
+    if not await is_admin(message.from_user.id):
+        await message.reply_text("⚠️ You are not authorized to use admin commands.")
+        return
+    
+    admin_text = (
+        "**📋 ᴀᴅᴍɪɴ ᴄᴏᴍᴍᴀɴᴅs:**\n\n"
+        "• `/pending` - View pending video requests\n"
+        "• `/notify [user_id] [message]` - Send notification to a user\n"
+        "• `/broadcast [message]` - Send message to all users who requested videos\n"
+        "• `/stats` - View bot statistics"
+    )
+    await message.reply_text(admin_text)
+
+@app.on_message(filters.command("pending"))
+async def pending_requests_command(client: Client, message: Message):
+    """Show pending video requests to admins"""
+    if not await is_admin(message.from_user.id):
+        await message.reply_text("⚠️ You are not authorized to use this command.")
+        return
+    
+    if not pending_requests:
+        await message.reply_text("🔍 No pending video requests found.")
+        return
+    
+    pending_text = "**📋 ᴘᴇɴᴅɪɴɢ ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛs:**\n\n"
+    
+    for request_id, request_data in pending_requests.items():
+        pending_text += (
+            f"**ʀᴇǫᴜᴇsᴛ ɪᴅ:** `{request_id}`\n"
+            f"**ᴜsᴇʀ:** {request_data['user_mention']} (`{request_data['user_id']}`)\n"
+            f"**ᴅᴇsᴄʀɪᴘᴛɪᴏɴ:** {request_data['description']}\n"
+            f"**ᴛɪᴍᴇ:** {request_data['time']}\n\n"
+        )
+    
+    # Add instructions for approval/rejection
+    pending_text += (
+        "📌 **ᴛᴏ ᴀᴘᴘʀᴏᴠᴇ/ʀᴇᴊᴇᴄᴛ:**\n"
+        "• Reply to this message with: `/approve [request_id] [optional_message]`\n"
+        "• Reply to this message with: `/reject [request_id] [reason]`"
+    )
+    
+    await message.reply_text(pending_text)
+
+@app.on_message(filters.command("approve"))
+async def approve_request(client: Client, message: Message):
+    """Approve a video request"""
+    if not await is_admin(message.from_user.id):
+        await message.reply_text("⚠️ You are not authorized to use this command.")
+        return
+    
+    command_parts = message.text.split(' ', 2)
+    if len(command_parts) < 2:
+        await message.reply_text("⚠️ Please provide a request ID to approve.\nFormat: `/approve [request_id] [optional_message]`")
+        return
+    
+    request_id = command_parts[1]
+    approval_message = command_parts[2] if len(command_parts) > 2 else "Your video request has been approved! We'll process it soon."
+    
+    if request_id not in pending_requests:
+        await message.reply_text(f"⚠️ Request ID `{request_id}` not found.")
+        return
+    
+    request_data = pending_requests[request_id]
+    user_id = request_data['user_id']
+    
+    try:
+        # Send approval notification to user
+        await client.send_message(
+            chat_id=user_id,
+            text=f"✅ **ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛ ᴀᴘᴘʀᴏᴠᴇᴅ!**\n\n"
+                 f"🎬 **ᴅᴇsᴄʀɪᴘᴛɪᴏɴ:** {request_data['description']}\n\n"
+                 f"📝 **ᴍᴇssᴀɢᴇ:** {approval_message}"
+        )
+        
+        # Send confirmation to admin
+        await message.reply_text(f"✅ Request `{request_id}` approved and user has been notified.")
+        
+        # Keep the request in pending_requests but mark it as approved
+        pending_requests[request_id]['status'] = 'approved'
+        
+    except Exception as e:
+        logger.error(f"Error sending approval notification: {e}")
+        await message.reply_text(f"⚠️ Failed to send notification to user: {str(e)[:100]}...")
+
+@app.on_message(filters.command("reject"))
+async def reject_request(client: Client, message: Message):
+    """Reject a video request"""
+    if not await is_admin(message.from_user.id):
+        await message.reply_text("⚠️ You are not authorized to use this command.")
+        return
+    
+    command_parts = message.text.split(' ', 2)
+    if len(command_parts) < 3:
+        await message.reply_text("⚠️ Please provide a request ID and reason.\nFormat: `/reject [request_id] [reason]`")
+        return
+    
+    request_id = command_parts[1]
+    rejection_reason = command_parts[2]
+    
+    if request_id not in pending_requests:
+        await message.reply_text(f"⚠️ Request ID `{request_id}` not found.")
+        return
+    
+    request_data = pending_requests[request_id]
+    user_id = request_data['user_id']
+    
+    try:
+        # Send rejection notification to user
+        await client.send_message(
+            chat_id=user_id,
+            text=f"❌ **ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛ ʀᴇᴊᴇᴄᴛᴇᴅ**\n\n"
+                 f"🎬 **ᴅᴇsᴄʀɪᴘᴛɪᴏɴ:** {request_data['description']}\n\n"
+                 f"📝 **ʀᴇᴀsᴏɴ:** {rejection_reason}"
+        )
+        
+        # Send confirmation to admin
+        await message.reply_text(f"❌ Request `{request_id}` rejected and user has been notified.")
+        
+        # Remove the request from pending_requests
+        del pending_requests[request_id]
+        
+    except Exception as e:
+        logger.error(f"Error sending rejection notification: {e}")
+        await message.reply_text(f"⚠️ Failed to send notification to user: {str(e)[:100]}...")
+
+@app.on_message(filters.command("notify"))
+async def notify_user(client: Client, message: Message):
+    """Send notification to a user"""
+    if not await is_admin(message.from_user.id):
+        await message.reply_text("⚠️ You are not authorized to use this command.")
+        return
+    
+    command_parts = message.text.split(' ', 2)
+    if len(command_parts) < 3:
+        await message.reply_text("⚠️ Please provide a user ID and message.\nFormat: `/notify [user_id] [message]`")
+        return
+    
+    try:
+        user_id = int(command_parts[1])
+        notification_message = command_parts[2]
+        
+        # Try to send the notification
+        await client.send_message(
+            chat_id=user_id,
+            text=f"📢 **ɴᴏᴛɪғɪᴄᴀᴛɪᴏɴ ғʀᴏᴍ ᴀᴅᴍɪɴ**\n\n{notification_message}"
+        )
+        
+        await message.reply_text(f"✅ Notification sent to user `{user_id}`.")
+    except ValueError:
+        await message.reply_text("⚠️ Invalid user ID. Please provide a valid numeric user ID.")
+    except Exception as e:
+        logger.error(f"Error sending notification: {e}")
+        await message.reply_text(f"⚠️ Failed to send notification: {str(e)[:100]}...")
+
+@app.on_message(filters.command("file_ready"))
+async def file_ready_notification(client: Client, message: Message):
+    """Notify user that their requested file is ready"""
+    if not await is_admin(message.from_user.id):
+        await message.reply_text("⚠️ You are not authorized to use this command.")
+        return
+    
+    command_parts = message.text.split(' ', 2)
+    if len(command_parts) < 2:
+        await message.reply_text("⚠️ Please provide a user ID.\nFormat: `/file_ready [user_id] [optional_message]`")
+        return
+    
+    try:
+        user_id = int(command_parts[1])
+        custom_message = ""
+        if len(command_parts) > 2:
+            custom_message = command_parts[2]
+        
+        # Check if there's a forwarded message (the actual file)
+        file_message = None
+        if message.reply_to_message:
+            file_message = message.reply_to_message
+        
+        # Prepare notification message
+        notification = (
+            f"🎉 **ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛᴇᴅ ғɪʟᴇ ɪs ʀᴇᴀᴅʏ!**\n\n"
+        )
+        
+        if custom_message:
+            notification += f"📝 **ᴍᴇssᴀɢᴇ:** {custom_message}\n\n"
+        
+        notification += "📥 ᴄʜᴇᴄᴋ ʙᴇʟᴏᴡ ғᴏʀ ʏᴏᴜʀ ғɪʟᴇ. ᴛʜᴀɴᴋ ʏᴏᴜ ғᴏʀ ᴜsɪɴɢ ᴏᴜʀ sᴇʀᴠɪᴄᴇ!"
+        
+        # Send notification message
+        await client.send_message(
+            chat_id=user_id,
+            text=notification
+        )
+        
+        # Forward the file if available
+        if file_message:
+            await file_message.forward(user_id)
+        
+        await message.reply_text(f"✅ File ready notification sent to user `{user_id}`.")
+        
+    except ValueError:
+        await message.reply_text("⚠️ Invalid user ID. Please provide a valid numeric user ID.")
+    except Exception as e:
+        logger.error(f"Error sending file ready notification: {e}")
+        await message.reply_text(f"⚠️ Failed to send notification: {str(e)[:100]}...")
+
 @app.on_callback_query()
 async def handle_callback(client, callback_query):
     user_id = callback_query.from_user.id
@@ -192,7 +444,7 @@ async def handle_callback(client, callback_query):
     # Check for force subscription
     is_member = await is_user_member(client, user_id)
     if not is_member:
-        join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/jetmirror")
+        join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/terao2")
         reply_markup = InlineKeyboardMarkup([[join_button]])
         await callback_query.answer("You must join my channel to use this feature!", show_alert=True)
         await callback_query.message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
@@ -217,6 +469,23 @@ async def handle_callback(client, callback_query):
             del users_in_request_mode[user_id]
         await callback_query.message.reply_text("❌ ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛ ᴄᴀɴᴄᴇʟʟᴇᴅ.")
         await callback_query.answer("Request cancelled")
+    
+    elif callback_query.data == "admin_commands":
+        # Check if user is admin
+        if await is_admin(user_id):
+            admin_text = (
+                "**📋 ᴀᴅᴍɪɴ ᴄᴏᴍᴍᴀɴᴅs:**\n\n"
+                "• `/pending` - View pending video requests\n"
+                "• `/approve [request_id] [message]` - Approve a request\n"
+                "• `/reject [request_id] [reason]` - Reject a request\n"
+                "• `/notify [user_id] [message]` - Send notification to a user\n"
+                "• `/file_ready [user_id] [message]` - Notify user their file is ready\n"
+                "• `/stats` - View bot statistics"
+            )
+            await callback_query.message.reply_text(admin_text)
+            await callback_query.answer("Admin commands displayed")
+        else:
+            await callback_query.answer("You are not authorized to access admin commands", show_alert=True)
 
 async def update_status_message(status_message, text):
     try:
@@ -268,548 +537,391 @@ async def handle_message(client: Client, message: Message):
         # Check for force subscription
         is_member = await is_user_member(client, user_id)
         if not is_member:
-            join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/jetmirror")
+            join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/terao2")
             reply_markup = InlineKeyboardMarkup([[join_button]])
             await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
             return
         
-        # Forward the request to the request channel
+        # Generate a unique request ID
+        request_id = f"REQ{len(pending_requests) + 1:03d}"
+        
+       # Store request details
+        pending_requests[request_id] = {
+            'user_id': user_id,
+            'user_mention': message.from_user.mention,
+            'photo_id': photo_id,
+            'description': description,
+            'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'status': 'pending'
+        }
+        
+        # Forward the request to admin channel
         try:
-            # Send the photo with description to the request channel
+            # Send the screenshot with description
             await client.send_photo(
                 chat_id=REQUEST_CHANNEL_ID,
                 photo=photo_id,
-                caption=f"🎬 **ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛ**\n\n"
-                        f"📝 **ᴅᴇsᴄʀɪᴘᴛɪᴏɴ:** {description}\n\n"
-                        f"👤 **ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ:** {message.from_user.mention} (`{user_id}`)\n"
-                        f"⏰ **ᴛɪᴍᴇ:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                caption=f"📝 **ɴᴇᴡ ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛ**\n\n"
+                       f"**ʀᴇǫᴜᴇsᴛ ɪᴅ:** `{request_id}`\n"
+                       f"**ᴜsᴇʀ:** {message.from_user.mention} (`{user_id}`)\n"
+                       f"**ᴅᴇsᴄʀɪᴘᴛɪᴏɴ:** {description}\n\n"
+                       f"**ᴄᴏᴍᴍᴀɴᴅs:**\n"
+                       f"`/approve {request_id} [message]`\n"
+                       f"`/reject {request_id} [reason]`"
             )
             
-            # Notify user that request was sent
+            # Confirm to user
             await message.reply_text(
-                "✅ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ʜᴀs ʙᴇᴇɴ sᴜʙᴍɪᴛᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ!\n\n"
-                "ᴏᴜʀ ᴛᴇᴀᴍ ᴡɪʟʟ ʀᴇᴠɪᴇᴡ ɪᴛ ᴀɴᴅ ᴘʀᴏᴄᴇss ɪᴛ ᴀs sᴏᴏɴ ᴀs ᴘᴏssɪʙʟᴇ."
+                "✅ **ʏᴏᴜʀ ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛ ʜᴀs ʙᴇᴇɴ sᴜʙᴍɪᴛᴛᴇᴅ!**\n\n"
+                f"🆔 **ʀᴇǫᴜᴇsᴛ ɪᴅ:** `{request_id}`\n"
+                "⏳ Please be patient while admins review your request."
             )
+            
         except Exception as e:
-            logger.error(f"Error sending request to channel: {e}")
-            await message.reply_text("❌ sᴏʀʀʏ, ᴛʜᴇʀᴇ ᴡᴀs ᴀɴ ᴇʀʀᴏʀ ᴘʀᴏᴄᴇssɪɴɢ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ. ᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ ʟᴀᴛᴇʀ.")
+            logger.error(f"Error processing video request: {e}")
+            await message.reply_text("❌ Error submitting your request. Please try again later.")
         
         return
     
-    # Regular URL processing for Terabox links
-    is_member = await is_user_member(client, user_id)
-
-    if not is_member:
-        join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/jetmirror")
-        reply_markup = InlineKeyboardMarkup([[join_button]])
-        await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
-        return
-    
-    url = None
-    for word in message.text.split():
-        if is_valid_url(word):
-            url = word
-            break
-
-    if not url:
-        await message.reply_text("Please provide a valid Terabox link.")
-        return
-
-    # Check if aria2 is initialized
-    if aria2 is None:
-        await message.reply_text("❌ Download service is currently unavailable. Please try again later.")
-        return
-
-    encoded_url = urllib.parse.quote(url)
-    final_url = f"https://teradlrobot.cheemsbackup.workers.dev/?url={encoded_url}"
-
-    try:
-        download = aria2.add_uris([final_url])
-        status_message = await message.reply_text("sᴇɴᴅɪɴɢ ʏᴏᴜ ᴛʜᴇ ᴍᴇᴅɪᴀ...🤤")
-    except Exception as e:
-        logger.error(f"Failed to add download: {e}")
-        await message.reply_text("❌ Failed to start download. The download service might be down. Please try again later.")
-        return
-
-    start_time = datetime.now()
-    download_error = False
-
-    try:
-        # Monitor download progress
-        while not download.is_complete:
-            await asyncio.sleep(15)
-            
-            try:
-                download.update()
-                progress = download.progress
-            except Exception as e:
-                logger.error(f"Error updating download status: {e}")
-                download_error = True
-                break
-
-            elapsed_time = datetime.now() - start_time
-            elapsed_minutes, elapsed_seconds = divmod(elapsed_time.seconds, 60)
-            
-            # Improved cleaner progress bar with emojis
-            progress_bar = generate_progress_bar(progress)
-            
-            status_text = (
-                f"📥 **ᴅᴏᴡɴʟᴏᴀᴅɪɴɢ**\n\n"
-                f"**{download.name}**\n\n"
-                f"{progress_bar} `{progress:.1f}%`\n\n"
-                f"⚡️ **sᴘᴇᴇᴅ:** {format_size(download.download_speed)}/s\n"
-                f"💾 **sɪᴢᴇ:** {format_size(download.completed_length)}/{format_size(download.total_length)}\n"
-                f"⏱️ **ᴇᴛᴀ:** {download.eta}\n"
-                f"⏰ **ᴇʟᴀᴘsᴇᴅ:** {elapsed_minutes}m {elapsed_seconds}s\n\n"
-                f"👤 {message.from_user.mention}"
-            )
-            
-            # Handle update message with flood protection
-            try:
-                await update_status_message(status_message, status_text)
-            except FloodWait as e:
-                logger.error(f"Flood wait detected! Sleeping for {e.value} seconds")
-                await asyncio.sleep(e.value)
-                await update_status_message(status_message, status_text)
-
-        if download_error:
-            await status_message.edit_text("❌ Download failed. Please try again later.")
+    # Handle TeraBox links
+    if is_valid_url(message.text):
+        # Check for force subscription
+        is_member = await is_user_member(client, user_id)
+        if not is_member:
+            join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/terao2")
+            reply_markup = InlineKeyboardMarkup([[join_button]])
+            await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
             return
-
-        file_path = download.files[0].path
-        caption = (
-            f"✨ {download.name}\n"
-            f"👤 ʟᴇᴇᴄʜᴇᴅ ʙʏ : <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>\n"
-            f"📥 ᴜsᴇʀ ʟɪɴᴋ: tg://user?id={user_id}\n\n"
-            "[ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴊᴇᴛ-ᴍɪʀʀᴏʀ ❤️🚀](https://t.me/JetMirror)"
-        )
-
-        await handle_upload(client, message, status_message, file_path, caption, user_id)
-
-    except Exception as e:
-        logger.error(f"Download error: {e}")
-        await status_message.edit_text(f"❌ Download failed: {str(e)[:100]}... Please try again later.")
-
-async def handle_upload(client, message, status_message, file_path, caption, user_id):
-    last_update_time = time.time()
-    UPDATE_INTERVAL = 15
-    start_time = datetime.now()
-
-    async def update_status(message, text):
-        nonlocal last_update_time
-        current_time = time.time()
-        if current_time - last_update_time >= UPDATE_INTERVAL:
-            try:
-                await message.edit_text(text)
-                last_update_time = current_time
-            except FloodWait as e:
-                logger.warning(f"FloodWait: Sleeping for {e.value}s")
-                await asyncio.sleep(e.value)
-                await update_status(message, text)
-            except Exception as e:
-                logger.error(f"Error updating status: {e}")
-
-    async def upload_progress(current, total):
-        progress = (current / total) * 100
-        elapsed_time = datetime.now() - start_time
-        elapsed_minutes, elapsed_seconds = divmod(elapsed_time.seconds, 60)
         
-        # Clean upload progress bar
-        progress_bar = generate_progress_bar(progress)
+        # Send initial status message
+        status_message = await message.reply_text("🔍 Analyzing your TeraBox link...")
         
-        status_text = (
-            f"📤 **ᴜᴘʟᴏᴀᴅɪɴɢ ᴛᴏ ᴛᴇʟᴇɢʀᴀᴍ**\n\n"
-            f"**{os.path.basename(file_path)}**\n\n"
-            f"{progress_bar} `{progress:.1f}%`\n\n"
-            f"⚡️ **sᴘᴇᴇᴅ:** {format_size(current / elapsed_time.seconds if elapsed_time.seconds > 0 else 0)}/s\n"
-            f"💾 **sɪᴢᴇ:** {format_size(current)}/{format_size(total)}\n"
-            f"⏰ **ᴇʟᴀᴘsᴇᴅ:** {elapsed_minutes}m {elapsed_seconds}s\n\n"
-            f"👤 {message.from_user.mention}"
-        )
-        await update_status(status_message, status_text)
-
-    async def split_video_with_ffmpeg(input_path, output_prefix, split_size):
         try:
-            original_ext = os.path.splitext(input_path)[1].lower() or '.mp4'
-            start_time = datetime.now()
-            last_progress_update = time.time()
+            # Get URL components
+            terabox_url = message.text.strip()
             
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                    '-of', 'default=noprint_wrappers=1:nokey=1', input_path,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, _ = await proc.communicate()
-                total_duration = float(stdout.decode().strip())
-            except Exception as e:
-                logger.error(f"ffprobe error: {e}")
-                # Default to a reasonable duration if ffprobe fails
-                total_duration = 3600  # 1 hour as fallback
+            # Begin download process
+            await update_status_message(status_message, "📥 Starting download from Sever.....")
             
-            file_size = os.path.getsize(input_path)
-            parts = math.ceil(file_size / split_size)
-            
-            if parts == 1:
-                return [input_path]
-            
-            duration_per_part = total_duration / parts
-            split_files = []
-            
-            for i in range(parts):
-                current_time = time.time()
-                if current_time - last_progress_update >= UPDATE_INTERVAL:
-                    elapsed = datetime.now() - start_time
-                    
-                    # Clean split progress display
-                    progress_percentage = ((i+1) / parts) * 100
-                    progress_bar = generate_progress_bar(progress_percentage)
-                    
-                    status_text = (
-                        f"✂️ **sᴘʟɪᴛᴛɪɴɢ ᴠɪᴅᴇᴏ**\n\n"
-                        f"**{os.path.basename(input_path)}**\n\n"
-                        f"{progress_bar} `{progress_percentage:.1f}%`\n\n"
-                        f"🔄 **ᴘᴀʀᴛ:** {i+1}/{parts}\n"
-                        f"⏰ **ᴇʟᴀᴘsᴇᴅ:** {elapsed.seconds // 60}m {elapsed.seconds % 60}s"
-                    )
-                    await update_status(status_message, status_text)
-                    last_progress_update = current_time
-                
-                output_path = f"{output_prefix}.{i+1:03d}{original_ext}"
-                
-                # Try using ffmpeg first, if it fails fall back to xtra
+            # Use aria2 to download the file
+            if aria2:
                 try:
-                    cmd = [
-                        'ffmpeg', '-y', '-ss', str(i * duration_per_part),
-                        '-i', input_path, '-t', str(duration_per_part),
-                        '-c', 'copy', '-map', '0',
-                        '-avoid_negative_ts', 'make_zero',
-                        output_path
-                    ]
+                    # Add the download to aria2
+                    download = aria2.add_uris([terabox_url])
                     
-                    proc = await asyncio.create_subprocess_exec(*cmd)
-                    await proc.wait()
-                except Exception:
-                    try:
-                        # Try with xtra as fallback
-                        cmd = [
-                            'xtra', '-y', '-ss', str(i * duration_per_part),
-                            '-i', input_path, '-t', str(duration_per_part),
-                            '-c', 'copy', '-map', '0',
-                            '-avoid_negative_ts', 'make_zero',
-                            output_path
-                        ]
+                    # Track download progress
+                    last_progress = -1
+                    last_update_time = time.time()
+                    
+                    while download.is_active or download.is_waiting:
+                        download.update()
                         
-                        proc = await asyncio.create_subprocess_exec(*cmd)
-                        await proc.wait()
-                    except Exception as e:
-                        logger.error(f"Splitting error with both ffmpeg and xtra: {e}")
-                        return [input_path]  # Return original if splitting fails
-                
-                split_files.append(output_path)
-            
-            return split_files
-        except Exception as e:
-            logger.error(f"Split error: {e}")
-            return [input_path]  # Return original file path in case of error
-
-    try:
-        file_size = os.path.getsize(file_path)
-        
-        if file_size > SPLIT_SIZE:
-            # Clean splitting notification
-            progress_bar = generate_progress_bar(0)  # 0% progress to start
-            
-            await update_status(
-                status_message,
-                f"✂️ **sᴘʟɪᴛᴛɪɴɢ ᴠɪᴅᴇᴏ**\n\n"
-                f"**{os.path.basename(file_path)}**\n\n"
-                f"{progress_bar} `0%`\n\n"
-                f"💾 **sɪᴢᴇ:** {format_size(file_size)}\n"
-                f"⏱️ **ᴇsᴛ. ᴛɪᴍᴇ:** Computing...\n\n"
-                f"👤 {message.from_user.mention}"
-            )
-            
-            # Split the file
-            split_dir = os.path.dirname(file_path)
-            output_prefix = os.path.join(split_dir, os.path.splitext(os.path.basename(file_path))[0])
-            split_files = await split_video_with_ffmpeg(file_path, output_prefix, SPLIT_SIZE)
-            
-            uploaded_parts = []
-            for i, part_path in enumerate(split_files):
-                part_size = os.path.getsize(part_path)
-                part_base_name = os.path.basename(part_path)
-                part_caption = f"{caption}\n\n📑 **ᴘᴀʀᴛ {i+1}/{len(split_files)}**"
-                
-                await update_status(
-                    status_message,
-                    f"📤 **ᴜᴘʟᴏᴀᴅɪɴɢ ᴘᴀʀᴛ {i+1}/{len(split_files)}**\n\n"
-                    f"**{part_base_name}**\n\n"
-                    f"{generate_progress_bar(0)} `0%`\n\n"
-                    f"💾 **sɪᴢᴇ:** {format_size(part_size)}\n"
-                    f"⏱️ **ᴇsᴛ. ᴛɪᴍᴇ:** Computing...\n\n"
-                    f"👤 {message.from_user.mention}"
-                )
-                
-                # Upload each part to Telegram
-                try:
-                    # Get file mimetype
-                    ext = os.path.splitext(part_path)[1].lower()
-                    is_video = ext in ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.webm']
-                    is_audio = ext in ['.mp3', '.m4a', '.flac', '.wav', '.ogg']
-                    is_image = ext in ['.jpg', '.jpeg', '.png', '.webp']
+                        # Calculate progress
+                        try:
+                            total_length = int(download.total_length)
+                            completed_length = int(download.completed_length)
+                            
+                            if total_length > 0:
+                                progress = (completed_length / total_length) * 100
+                                download_speed = int(download.download_speed)
+                                
+                                # Only update message if progress changes significantly or time passed
+                                current_time = time.time()
+                                if (abs(progress - last_progress) > 1 or current_time - last_update_time > 5):
+                                    last_progress = progress
+                                    last_update_time = current_time
+                                    
+                                    # Calculate ETA
+                                    eta = (total_length - completed_length) / download_speed if download_speed > 0 else 0
+                                    
+                                    # Format progress message
+                                    progress_bar = generate_progress_bar(progress)
+                                    progress_text = (
+                                        f"📥 **ᴅᴏᴡɴʟᴏᴀᴅɪɴɢ...**\n\n"
+                                        f"**ғɪʟᴇ ɴᴀᴍᴇ:** `{download.name}`\n"
+                                        f"**ᴘʀᴏɢʀᴇss:** {progress_bar} `{progress:.1f}%`\n"
+                                        f"**sᴘᴇᴇᴅ:** `{format_size(download_speed)}/s`\n"
+                                        f"**ᴅᴏᴡɴʟᴏᴀᴅᴇᴅ:** `{format_size(completed_length)}`/`{format_size(total_length)}`\n"
+                                        f"**ᴇᴛᴀ:** `{format_eta(eta)}`"
+                                    )
+                                    await update_status_message(status_message, progress_text)
+                        except Exception as e:
+                            logger.error(f"Error updating progress: {e}")
+                        
+                        await asyncio.sleep(1)
                     
-                    # Upload based on file type
-                    if is_video:
-                        uploaded_file = await client.send_video(
-                            chat_id=DUMP_CHAT_ID,
-                            video=part_path,
-                            caption=part_caption,
-                            progress=upload_progress,
-                            file_name=part_base_name,
-                            supports_streaming=True
-                        )
-                    elif is_audio:
-                        uploaded_file = await client.send_audio(
-                            chat_id=DUMP_CHAT_ID,
-                            audio=part_path,
-                            caption=part_caption,
-                            progress=upload_progress,
-                            file_name=part_base_name
-                        )
-                    elif is_image:
-                        uploaded_file = await client.send_photo(
-                            chat_id=DUMP_CHAT_ID,
-                            photo=part_path,
-                            caption=part_caption,
-                            progress=upload_progress
-                        )
+                    # Check if download completed successfully
+                    download.update()
+                    if download.is_complete:
+                        await update_status_message(status_message, f"✅ Download completed: `{download.name}`\n\nPreparing to upload...")
+                        
+                        # Get the file path
+                        file_path = os.path.join(download.dir, download.name)
+                        
+                        # Get file size
+                        file_size = os.path.getsize(file_path)
+                        
+                        # Check if file exists
+                        if not os.path.exists(file_path):
+                            await update_status_message(status_message, "❌ File not found after download. Please try again.")
+                            return
+                        
+                        # Upload the file
+                        if file_size > SPLIT_SIZE:
+                            await update_status_message(status_message, f"⚠️ File size {format_size(file_size)} exceeds limit. Splitting and uploading in parts...")
+                            
+                            # Upload as multiple files
+                            parts = math.ceil(file_size / SPLIT_SIZE)
+                            for i in range(parts):
+                                start_byte = i * SPLIT_SIZE
+                                end_byte = min((i + 1) * SPLIT_SIZE, file_size)
+                                
+                                part_name = f"{download.name}.part{i+1:03d}"
+                                
+                                # Update status
+                                await update_status_message(status_message, f"📤 Uploading part {i+1}/{parts}: {part_name}...")
+                                
+                                # Create a caption for the file
+                                caption = f"📁 **ғɪʟᴇ ɴᴀᴍᴇ:** `{download.name}`\n**ᴘᴀʀᴛ:** {i+1}/{parts}"
+                                
+                                # Upload using the most appropriate method
+                                try:
+                                    if user:
+                                        # Use user client for larger files
+                                        await user.send_document(
+                                            chat_id=DUMP_CHAT_ID,
+                                            document=file_path,
+                                            caption=caption,
+                                            file_name=part_name,
+                                            progress=lambda c, t: asyncio.get_event_loop().create_task(
+                                                update_status_message(status_message, 
+                                                f"📤 **ᴜᴘʟᴏᴀᴅɪɴɢ ᴘᴀʀᴛ {i+1}/{parts}**\n\n"
+                                                f"**ᴘʀᴏɢʀᴇss:** {generate_progress_bar((c/t)*100)} `{(c/t)*100:.1f}%`\n"
+                                                f"**ᴜᴘʟᴏᴀᴅᴇᴅ:** `{format_size(c)}`/`{format_size(t)}`")
+                                            )
+                                        )
+                                    else:
+                                        # Use bot client
+                                        await client.send_document(
+                                            chat_id=DUMP_CHAT_ID,
+                                            document=file_path,
+                                            caption=caption,
+                                            file_name=part_name,
+                                            progress=lambda c, t: asyncio.get_event_loop().create_task(
+                                                update_status_message(status_message, 
+                                                f"📤 **ᴜᴘʟᴏᴀᴅɪɴɢ ᴘᴀʀᴛ {i+1}/{parts}**\n\n"
+                                                f"**ᴘʀᴏɢʀᴇss:** {generate_progress_bar((c/t)*100)} `{(c/t)*100:.1f}%`\n"
+                                                f"**ᴜᴘʟᴏᴀᴅᴇᴅ:** `{format_size(c)}`/`{format_size(t)}`")
+                                            )
+                                        )
+                                except Exception as e:
+                                    logger.error(f"Error uploading file part: {e}")
+                                    await update_status_message(status_message, f"❌ Error uploading file part {i+1}: {str(e)[:100]}...")
+                                    continue
+                                
+                                # Forward the file to the user
+                                try:
+                                    # Get the last message from dump chat
+                                    async for msg in client.get_chat_history(DUMP_CHAT_ID, limit=1):
+                                        await msg.forward(message.chat.id)
+                                        break
+                                except Exception as e:
+                                    logger.error(f"Error forwarding file part: {e}")
+                                    await update_status_message(status_message, f"❌ Error forwarding file part {i+1}. Please check @{DUMP_CHAT_ID} for your files.")
+                        else:
+                            # Upload as single file
+                            await update_status_message(status_message, f"📤 Uploading `{download.name}`...")
+                            
+                            # Create a caption for the file
+                            caption = f"📁 **ғɪʟᴇ ɴᴀᴍᴇ:** `{download.name}`"
+                            
+                            # Upload using the most appropriate method
+                            try:
+                                if user and file_size > 50 * 1024 * 1024:  # Use user client for files > 50MB
+                                    await user.send_document(
+                                        chat_id=DUMP_CHAT_ID,
+                                        document=file_path,
+                                        caption=caption,
+                                        progress=lambda c, t: asyncio.get_event_loop().create_task(
+                                            update_status_message(status_message, 
+                                            f"📤 **ᴜᴘʟᴏᴀᴅɪɴɢ**\n\n"
+                                            f"**ᴘʀᴏɢʀᴇss:** {generate_progress_bar((c/t)*100)} `{(c/t)*100:.1f}%`\n"
+                                            f"**ᴜᴘʟᴏᴀᴅᴇᴅ:** `{format_size(c)}`/`{format_size(t)}`")
+                                        )
+                                    )
+                                else:
+                                    # Use bot client
+                                    await client.send_document(
+                                        chat_id=DUMP_CHAT_ID,
+                                        document=file_path,
+                                        caption=caption,
+                                        progress=lambda c, t: asyncio.get_event_loop().create_task(
+                                            update_status_message(status_message, 
+                                            f"📤 **ᴜᴘʟᴏᴀᴅɪɴɢ**\n\n"
+                                            f"**ᴘʀᴏɢʀᴇss:** {generate_progress_bar((c/t)*100)} `{(c/t)*100:.1f}%`\n"
+                                            f"**ᴜᴘʟᴏᴀᴅᴇᴅ:** `{format_size(c)}`/`{format_size(t)}`")
+                                        )
+                                    )
+                            except Exception as e:
+                                logger.error(f"Error uploading file: {e}")
+                                await update_status_message(status_message, f"❌ Error uploading file: {str(e)[:100]}...")
+                                return
+                            
+                            # Forward the file to the user
+                            try:
+                                # Get the last message from dump chat
+                                async for msg in client.get_chat_history(DUMP_CHAT_ID, limit=1):
+                                    await msg.forward(message.chat.id)
+                                    break
+                            except Exception as e:
+                                logger.error(f"Error forwarding file: {e}")
+                                await update_status_message(status_message, f"❌ Error forwarding file. Please check @{DUMP_CHAT_ID} for your file.")
+                        
+                        # Clean up
+                        try:
+                            os.remove(file_path)
+                        except Exception as e:
+                            logger.error(f"Error removing file: {e}")
+                        
+                        # Final message
+                        await update_status_message(status_message, "✅ **ᴘʀᴏᴄᴇss ᴄᴏᴍᴘʟᴇᴛᴇᴅ!**")
+                        
                     else:
-                        uploaded_file = await client.send_document(
-                            chat_id=DUMP_CHAT_ID,
-                            document=part_path,
-                            caption=part_caption,
-                            progress=upload_progress,
-                            file_name=part_base_name
-                        )
-                    
-                    # Forward to the user
-                    await client.forward_messages(
-                        chat_id=message.chat.id,
-                        from_chat_id=DUMP_CHAT_ID,
-                        message_ids=uploaded_file.id
-                    )
-                    
-                    uploaded_parts.append(part_path)
+                        await update_status_message(status_message, f"❌ Download failed: {download.error_message}")
+                        
                 except Exception as e:
-                    logger.error(f"Upload error for part {i+1}: {e}")
-                    await message.reply_text(f"❌ Failed to upload part {i+1}: {str(e)[:100]}...")
-            
-            # Clean up split files after upload
-            for part_path in uploaded_parts:
-                try:
-                    if part_path != file_path:  # Don't delete original file
-                        os.remove(part_path)
-                except Exception as e:
-                    logger.error(f"Error removing split file {part_path}: {e}")
-            
-            # Final success message
-            await status_message.edit_text(
-                f"✅ **ᴜᴘʟᴏᴀᴅ ᴄᴏᴍᴘʟᴇᴛᴇᴅ!**\n\n"
-                f"📚 **ғɪʟᴇ:** {os.path.basename(file_path)}\n"
-                f"📑 **ᴘᴀʀᴛs:** {len(split_files)}\n"
-                f"💾 **ᴛᴏᴛᴀʟ sɪᴢᴇ:** {format_size(file_size)}\n\n"
-                f"👤 {message.from_user.mention}"
-            )
-        else:
-            # Upload single file
-            filename = os.path.basename(file_path)
-            
-            # Determine file type based on extension
-            ext = os.path.splitext(file_path)[1].lower()
-            is_video = ext in ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.webm']
-            is_audio = ext in ['.mp3', '.m4a', '.flac', '.wav', '.ogg']
-            is_image = ext in ['.jpg', '.jpeg', '.png', '.webp']
-            
-            try:
-                # Upload to dump chat first
-                if is_video:
-                    uploaded_file = await client.send_video(
-                        chat_id=DUMP_CHAT_ID,
-                        video=file_path,
-                        caption=caption,
-                        progress=upload_progress,
-                        file_name=filename,
-                        supports_streaming=True
-                    )
-                elif is_audio:
-                    uploaded_file = await client.send_audio(
-                        chat_id=DUMP_CHAT_ID,
-                        audio=file_path,
-                        caption=caption,
-                        progress=upload_progress,
-                        file_name=filename
-                    )
-                elif is_image:
-                    uploaded_file = await client.send_photo(
-                        chat_id=DUMP_CHAT_ID,
-                        photo=file_path,
-                        caption=caption,
-                        progress=upload_progress
-                    )
-                else:
-                    uploaded_file = await client.send_document(
-                        chat_id=DUMP_CHAT_ID,
-                        document=file_path,
-                        caption=caption,
-                        progress=upload_progress,
-                        file_name=filename
-                    )
+                    logger.error(f"Error in download process: {e}")
+                    await update_status_message(status_message, f"❌ Error processing download: {str(e)[:100]}...")
+            else:
+                await update_status_message(status_message, "❌ aria2 service is not available. Please try again later.")
                 
-                # Forward to the user
-                await client.forward_messages(
-                    chat_id=message.chat.id,
-                    from_chat_id=DUMP_CHAT_ID,
-                    message_ids=uploaded_file.id
-                )
-                
-                # Final success message
-                await status_message.edit_text(
-                    f"✅ **ᴜᴘʟᴏᴀᴅ ᴄᴏᴍᴘʟᴇᴛᴇᴅ!**\n\n"
-                    f"📚 **ғɪʟᴇ:** {filename}\n"
-                    f"💾 **sɪᴢᴇ:** {format_size(file_size)}\n\n"
-                    f"👤 {message.from_user.mention}"
-                )
-            except Exception as e:
-                logger.error(f"Upload error: {e}")
-                await message.reply_text(f"❌ Upload failed: {str(e)[:100]}...")
-                await status_message.edit_text("❌ Upload failed. Please try again later.")
-    except Exception as e:
-        logger.error(f"Error in handle_upload: {e}")
-        await status_message.edit_text(f"❌ An error occurred: {str(e)[:100]}...")
-    finally:
-        # Clean up the downloaded file
-        try:
-            if os.path.exists(file_path):
-                os.remove(file_path)
         except Exception as e:
-            logger.error(f"Error removing file {file_path}: {e}")
+            logger.error(f"Error processing TeraBox link: {e}")
+            await update_status_message(status_message, f"❌ Error processing your link: {str(e)[:100]}...")
 
-# Simple web interface to keep the bot alive on hosted platforms
+@app.on_message(filters.command("stats"))
+async def stats_command(client: Client, message: Message):
+    """Display bot statistics"""
+    if not await is_admin(message.from_user.id):
+        await message.reply_text("⚠️ You are not authorized to use this command.")
+        return
+    
+    # Calculate statistics
+    total_pending = len([r for r in pending_requests.values() if r['status'] == 'pending'])
+    total_approved = len([r for r in pending_requests.values() if r['status'] == 'approved'])
+    
+    # Get aria2 stats if available
+    aria2_stats = "N/A"
+    if aria2:
+        try:
+            downloads = aria2.get_downloads()
+            active_downloads = len([d for d in downloads if d.is_active])
+            waiting_downloads = len([d for d in downloads if d.is_waiting])
+            stopped_downloads = len([d for d in downloads if d.is_paused])
+            completed_downloads = len([d for d in downloads if d.is_complete])
+            
+            aria2_stats = (
+                f"**ᴀᴄᴛɪᴠᴇ:** {active_downloads}\n"
+                f"**ᴡᴀɪᴛɪɴɢ:** {waiting_downloads}\n"
+                f"**sᴛᴏᴘᴘᴇᴅ:** {stopped_downloads}\n"
+                f"**ᴄᴏᴍᴘʟᴇᴛᴇᴅ:** {completed_downloads}"
+            )
+        except Exception as e:
+            logger.error(f"Error getting aria2 stats: {e}")
+            aria2_stats = f"Error: {str(e)[:50]}..."
+    
+    stats_text = (
+        "📊 **ʙᴏᴛ sᴛᴀᴛɪsᴛɪᴄs**\n\n"
+        f"**ᴘᴇɴᴅɪɴɢ ʀᴇǫᴜᴇsᴛs:** {total_pending}\n"
+        f"**ᴀᴘᴘʀᴏᴠᴇᴅ ʀᴇǫᴜᴇsᴛs:** {total_approved}\n\n"
+        f"**ᴀʀɪᴀ2 sᴛᴀᴛᴜs:**\n{aria2_stats}"
+    )
+    
+    await message.reply_text(stats_text)
+
+@app.on_message(filters.command("broadcast"))
+async def broadcast_command(client: Client, message: Message):
+    """Broadcast a message to all users who have made video requests"""
+    if not await is_admin(message.from_user.id):
+        await message.reply_text("⚠️ You are not authorized to use this command.")
+        return
+    
+    # Check for broadcast message
+    command_parts = message.text.split(' ', 1)
+    if len(command_parts) < 2:
+        await message.reply_text("⚠️ Please provide a message to broadcast.\nFormat: `/broadcast [message]`")
+        return
+    
+    broadcast_message = command_parts[1]
+    
+    # Get unique user IDs from pending requests
+    user_ids = set(request_data['user_id'] for request_data in pending_requests.values())
+    
+    if not user_ids:
+        await message.reply_text("⚠️ No users found to broadcast to.")
+        return
+    
+    # Start broadcasting
+    success_count = 0
+    fail_count = 0
+    
+    progress_message = await message.reply_text("🔄 Broadcasting message...")
+    
+    for user_id in user_ids:
+        try:
+            await client.send_message(
+                chat_id=user_id,
+                text=f"📢 **ʙʀᴏᴀᴅᴄᴀsᴛ ᴍᴇssᴀɢᴇ ғʀᴏᴍ ᴀᴅᴍɪɴ**\n\n{broadcast_message}"
+            )
+            success_count += 1
+        except Exception as e:
+            logger.error(f"Error broadcasting to user {user_id}: {e}")
+            fail_count += 1
+        
+        # Update progress
+        await progress_message.edit_text(
+            f"🔄 **ʙʀᴏᴀᴅᴄᴀsᴛɪɴɢ ɪɴ ᴘʀᴏɢʀᴇss**\n\n"
+            f"**sᴜᴄᴄᴇss:** {success_count}\n"
+            f"**ғᴀɪʟᴇᴅ:** {fail_count}\n"
+            f"**ᴛᴏᴛᴀʟ:** {len(user_ids)}"
+        )
+    
+    # Final report
+    await progress_message.edit_text(
+        f"✅ **ʙʀᴏᴀᴅᴄᴀsᴛ ᴄᴏᴍᴘʟᴇᴛᴇᴅ**\n\n"
+        f"**sᴜᴄᴄᴇss:** {success_count}\n"
+        f"**ғᴀɪʟᴇᴅ:** {fail_count}\n"
+        f"**ᴛᴏᴛᴀʟ:** {len(user_ids)}"
+    )
+
+# Flask web server for keeping the bot alive
 app_flask = Flask(__name__)
 
 @app_flask.route('/')
 def home():
-    return render_template('index.html', title="Terabox Downloader Bot")
+    return "Bot is running!"
 
-def run_web_server():
-    app_flask.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8000)))
+def run_flask():
+    app_flask.run(host='0.0.0.0', port=8080)
 
-# Create a simple index.html template in the templates folder
-os.makedirs('templates', exist_ok=True)
-with open('templates/index.html', 'w') as f:
-    f.write('''
-<!DOCTYPE html>
-<html>
-<head>
-    <title>{{ title }}</title>
-    <style>
-        body {
-            font-family: 'Arial', sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            background: linear-gradient(135deg, #1e3c72, #2a5298);
-            color: white;
-            text-align: center;
-        }
-        .container {
-            padding: 2rem;
-            border-radius: 10px;
-            background-color: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-            max-width: 600px;
-        }
-        h1 {
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-        }
-        p {
-            font-size: 1.2rem;
-            margin-bottom: 2rem;
-        }
-        .status {
-            padding: 0.5rem 1rem;
-            background-color: #4CAF50;
-            border-radius: 5px;
-            display: inline-block;
-        }
-        a {
-            color: #4CAF50;
-            text-decoration: none;
-            font-weight: bold;
-        }
-        a:hover {
-            text-decoration: underline;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Terabox Downloader Bot</h1>
-        <p>This server keeps the Telegram bot running. Go to Telegram and search for your bot to use it.</p>
-        <div class="status">Bot is Running</div>
-        <p style="margin-top: 2rem;">Made with ❤️ by <a href="https://t.me/rtx5069" target="_blank">RTX</a></p>
-    </div>
-</body>
-</html>
-    ''')
-
-async def main():
-    try:
-        # Start the web server in a separate thread
-        web_server = Thread(target=run_web_server)
-        web_server.daemon = True
-        web_server.start()
-        
-        # Start the Telegram clients
-        await app.start()
-        
-        if user:
-            try:
-                await user.start()
-                logger.info("User client started successfully.")
-            except Exception as e:
-                logger.error(f"Failed to start user client: {e}")
-                global SPLIT_SIZE
-                SPLIT_SIZE = 2093796556  # Revert to default 2GB limit
-        
-        logger.info("Bot is running!")
-        
-        # Keep the main thread alive
-        await asyncio.Event().wait()
-    except Exception as e:
-        logger.error(f"Error in main: {e}")
-    finally:
-        # Properly close clients
-        await app.stop()
-        if user:
-            await user.stop()
+def main():
+    # Start Flask in a separate thread
+    flask_thread = Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+    
+    # Start the user client if available
+    if user:
+        user.start()
+        logger.info("User client started")
+    
+    # Start the bot
+    logger.info("Starting bot")
+    app.run()
+    
+    # Stop the user client when bot stops
+    if user:
+        user.stop()
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    try:
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        logger.info("Stopping the bot...")
-        loop.run_until_complete(app.stop())
-        if user:
-            loop.run_until_complete(user.stop())
-    except Exception as e:
-        logger.error(f"Fatal error: {e}")
-    finally:
-        loop.close()
+    main()
