@@ -74,6 +74,13 @@ if len(FSUB_ID) == 0:
 else:
     FSUB_ID = int(FSUB_ID)
 
+REQUEST_CHANNEL_ID = os.environ.get('REQUEST_CHANNEL_ID', '')
+if len(REQUEST_CHANNEL_ID) == 0:
+    logging.error("REQUEST_CHANNEL_ID variable is missing! Exiting now")
+    exit(1)
+else:
+    REQUEST_CHANNEL_ID = int(REQUEST_CHANNEL_ID)
+
 USER_SESSION_STRING = os.environ.get('USER_SESSION_STRING', '')
 if len(USER_SESSION_STRING) == 0:
     logging.info("USER_SESSION_STRING variable is missing! Bot will split Files in 2Gb...")
@@ -94,6 +101,9 @@ VALID_DOMAINS = [
     'teraboxlink.com', 'terafileshare.com'
 ]
 last_update_time = 0
+
+# Track users in request mode
+users_in_request_mode = {}
 
 async def is_user_member(client, user_id):
     try:
@@ -122,12 +132,25 @@ def format_size(size):
 
 @app.on_message(filters.command("start"))
 async def start_command(client: Client, message: Message):
+    # Reset any request mode for the user
+    if message.from_user.id in users_in_request_mode:
+        del users_in_request_mode[message.from_user.id]
+        
     join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/jetmirror")
     developer_button = InlineKeyboardButton("ᴅᴇᴠᴇʟᴏᴘᴇʀ ⚡️", url="https://t.me/rtx5069")
     repo69 = InlineKeyboardButton("ʀᴇᴘᴏ 🌐", url="https://github.com/Hrishi2861/Terabox-Downloader-Bot")
+    request_button = InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴠɪᴅᴇᴏ 🎬", callback_data="request_video")
+    
     user_mention = message.from_user.mention
-    reply_markup = InlineKeyboardMarkup([[join_button, developer_button], [repo69]])
+    reply_markup = InlineKeyboardMarkup([
+        [join_button, developer_button], 
+        [repo69],
+        [request_button]
+    ])
+    
     final_msg = f"ᴡᴇʟᴄᴏᴍᴇ, {user_mention}.\n\n🌟 ɪ ᴀᴍ ᴀ ᴛᴇʀᴀʙᴏx ᴅᴏᴡɴʟᴏᴀᴅᴇʀ ʙᴏᴛ. sᴇɴᴅ ᴍᴇ ᴀɴʏ ᴛᴇʀᴀʙᴏx ʟɪɴᴋ ɪ ᴡɪʟʟ ᴅᴏᴡɴʟᴏᴀᴅ ᴡɪᴛʜɪɴ ғᴇᴡ sᴇᴄᴏɴᴅs ᴀɴᴅ sᴇɴᴅ ɪᴛ ᴛᴏ ʏᴏᴜ ✨."
+    final_msg += "\n\n📸 ʏᴏᴜ ᴄᴀɴ ᴀʟsᴏ ʀᴇǫᴜᴇsᴛ ᴠɪᴅᴇᴏs ʙʏ sᴇɴᴅɪɴɢ sᴄʀᴇᴇɴsʜᴏᴛs!"
+    
     video_file_id = "/app/Jet-Mirror.mp4"
     if os.path.exists(video_file_id):
         await client.send_video(
@@ -139,20 +162,118 @@ async def start_command(client: Client, message: Message):
     else:
         await message.reply_text(final_msg, reply_markup=reply_markup)
 
+@app.on_callback_query()
+async def handle_callback(client, callback_query):
+    user_id = callback_query.from_user.id
+    
+    # Check for force subscription
+    is_member = await is_user_member(client, user_id)
+    if not is_member:
+        join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/jetmirror")
+        reply_markup = InlineKeyboardMarkup([[join_button]])
+        await callback_query.answer("You must join my channel to use this feature!", show_alert=True)
+        await callback_query.message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
+        return
+    
+    if callback_query.data == "request_video":
+        # Set user in request mode
+        users_in_request_mode[user_id] = {"state": "waiting_for_image"}
+        
+        # Send instructions
+        cancel_button = InlineKeyboardButton("ᴄᴀɴᴄᴇʟ ❌", callback_data="cancel_request")
+        reply_markup = InlineKeyboardMarkup([[cancel_button]])
+        
+        await callback_query.message.reply_text(
+            "📸 ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴀ sᴄʀᴇᴇɴsʜᴏᴛ ᴏʀ ɪᴍᴀɢᴇ ᴏғ ᴛʜᴇ ᴠɪᴅᴇᴏ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ʀᴇǫᴜᴇsᴛ.",
+            reply_markup=reply_markup
+        )
+        await callback_query.answer("Please send a screenshot of the video you want.")
+    
+    elif callback_query.data == "cancel_request":
+        if user_id in users_in_request_mode:
+            del users_in_request_mode[user_id]
+        await callback_query.message.reply_text("❌ ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛ ᴄᴀɴᴄᴇʟʟᴇᴅ.")
+        await callback_query.answer("Request cancelled")
+
 async def update_status_message(status_message, text):
     try:
         await status_message.edit_text(text)
     except Exception as e:
         logger.error(f"Failed to update status message: {e}")
 
+@app.on_message(filters.photo)
+async def handle_photo(client: Client, message: Message):
+    user_id = message.from_user.id
+    
+    # Check if user is in request mode
+    if user_id in users_in_request_mode and users_in_request_mode[user_id]["state"] == "waiting_for_image":
+        # Update user state
+        users_in_request_mode[user_id] = {"state": "waiting_for_description"}
+        
+        # Save the photo_id for later
+        users_in_request_mode[user_id]["photo_id"] = message.photo.file_id
+        
+        # Ask for description
+        cancel_button = InlineKeyboardButton("ᴄᴀɴᴄᴇʟ ❌", callback_data="cancel_request")
+        reply_markup = InlineKeyboardMarkup([[cancel_button]])
+        
+        await message.reply_text(
+            "✍️ ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴀ ᴅᴇsᴄʀɪᴘᴛɪᴏɴ ᴏʀ ɴᴀᴍᴇ ᴏғ ᴛʜᴇ ᴠɪᴅᴇᴏ ʏᴏᴜ'ʀᴇ ʀᴇǫᴜᴇsᴛɪɴɢ.",
+            reply_markup=reply_markup
+        )
+        return
+
 @app.on_message(filters.text)
 async def handle_message(client: Client, message: Message):
     if message.text.startswith('/'):
-        return
+        if not message.text.startswith('/start'):
+            return
+    
+    user_id = message.from_user.id
     if not message.from_user:
         return
 
-    user_id = message.from_user.id
+    # Check if user is in request mode and waiting for description
+    if user_id in users_in_request_mode and users_in_request_mode[user_id]["state"] == "waiting_for_description":
+        # Process the video request
+        photo_id = users_in_request_mode[user_id]["photo_id"]
+        description = message.text
+        
+        # Reset user state
+        del users_in_request_mode[user_id]
+        
+        # Check for force subscription
+        is_member = await is_user_member(client, user_id)
+        if not is_member:
+            join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/jetmirror")
+            reply_markup = InlineKeyboardMarkup([[join_button]])
+            await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
+            return
+        
+        # Forward the request to the request channel
+        try:
+            # Send the photo with description to the request channel
+            await client.send_photo(
+                chat_id=REQUEST_CHANNEL_ID,
+                photo=photo_id,
+                caption=f"🎬 **ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛ**\n\n"
+                        f"📝 **ᴅᴇsᴄʀɪᴘᴛɪᴏɴ:** {description}\n\n"
+                        f"👤 **ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ:** {message.from_user.mention} (`{user_id}`)\n"
+                        f"⏰ **ᴛɪᴍᴇ:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+            
+            # Notify user that request was sent
+            await message.reply_text(
+                "✅ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ʜᴀs ʙᴇᴇɴ sᴜʙᴍɪᴛᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ!\n\n"
+                "ᴏᴜʀ ᴛᴇᴀᴍ ᴡɪʟʟ ʀᴇᴠɪᴇᴡ ɪᴛ ᴀɴᴅ ᴘʀᴏᴄᴇss ɪᴛ ᴀs sᴏᴏɴ ᴀs ᴘᴏssɪʙʟᴇ."
+            )
+        except Exception as e:
+            logger.error(f"Error sending request to channel: {e}")
+            await message.reply_text("❌ sᴏʀʀʏ, ᴛʜᴇʀᴇ ᴡᴀs ᴀɴ ᴇʀʀᴏʀ ᴘʀᴏᴄᴇssɪɴɢ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ. ᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ ʟᴀᴛᴇʀ.")
+        
+        return
+    
+    # Regular URL processing
     is_member = await is_user_member(client, user_id)
 
     if not is_member:
@@ -186,17 +307,21 @@ async def handle_message(client: Client, message: Message):
 
         elapsed_time = datetime.now() - start_time
         elapsed_minutes, elapsed_seconds = divmod(elapsed_time.seconds, 60)
-
+        
+        # Improved cleaner progress bar with emojis
+        progress_bar = generate_progress_bar(progress)
+        
         status_text = (
-            f"┏ ғɪʟᴇɴᴀᴍᴇ: {download.name}\n"
-            f"┠ [{'★' * int(progress / 10)}{'☆' * (10 - int(progress / 10))}] {progress:.2f}%\n"
-            f"┠ ᴘʀᴏᴄᴇssᴇᴅ: {format_size(download.completed_length)} ᴏғ {format_size(download.total_length)}\n"
-            f"┠ sᴛᴀᴛᴜs: 📥 Downloading\n"
-            f"┠ ᴇɴɢɪɴᴇ: <b><u>Aria2c v1.37.0</u></b>\n"
-            f"┠ sᴘᴇᴇᴅ: {format_size(download.download_speed)}/s\n"
-            f"┠ ᴇᴛᴀ: {download.eta} | ᴇʟᴀᴘsᴇᴅ: {elapsed_minutes}m {elapsed_seconds}s\n"
-            f"┖ ᴜsᴇʀ: <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> | ɪᴅ: {user_id}\n"
-            )
+            f"📥 **ᴅᴏᴡɴʟᴏᴀᴅɪɴɢ**\n\n"
+            f"**{download.name}**\n\n"
+            f"{progress_bar} `{progress:.1f}%`\n\n"
+            f"⚡️ **sᴘᴇᴇᴅ:** {format_size(download.download_speed)}/s\n"
+            f"💾 **sɪᴢᴇ:** {format_size(download.completed_length)}/{format_size(download.total_length)}\n"
+            f"⏱️ **ᴇᴛᴀ:** {download.eta}\n"
+            f"⏰ **ᴇʟᴀᴘsᴇᴅ:** {elapsed_minutes}m {elapsed_seconds}s\n\n"
+            f"👤 {message.from_user.mention}"
+        )
+        
         while True:
             try:
                 await update_status_message(status_message, status_text)
@@ -234,18 +359,29 @@ async def handle_message(client: Client, message: Message):
         progress = (current / total) * 100
         elapsed_time = datetime.now() - start_time
         elapsed_minutes, elapsed_seconds = divmod(elapsed_time.seconds, 60)
-
+        
+        # Clean upload progress bar
+        progress_bar = generate_progress_bar(progress)
+        
         status_text = (
-            f"┏ ғɪʟᴇɴᴀᴍᴇ: {download.name}\n"
-            f"┠ [{'★' * int(progress / 10)}{'☆' * (10 - int(progress / 10))}] {progress:.2f}%\n"
-            f"┠ ᴘʀᴏᴄᴇssᴇᴅ: {format_size(current)} ᴏғ {format_size(total)}\n"
-            f"┠ sᴛᴀᴛᴜs: 📤 Uploading to Telegram\n"
-            f"┠ ᴇɴɢɪɴᴇ: <b><u>PyroFork v2.2.11</u></b>\n"
-            f"┠ sᴘᴇᴇᴅ: {format_size(current / elapsed_time.seconds if elapsed_time.seconds > 0 else 0)}/s\n"
-            f"┠ ᴇʟᴀᴘsᴇᴅ: {elapsed_minutes}m {elapsed_seconds}s\n"
-            f"┖ ᴜsᴇʀ: <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> | ɪᴅ: {user_id}\n"
+            f"📤 **ᴜᴘʟᴏᴀᴅɪɴɢ ᴛᴏ ᴛᴇʟᴇɢʀᴀᴍ**\n\n"
+            f"**{download.name}**\n\n"
+            f"{progress_bar} `{progress:.1f}%`\n\n"
+            f"⚡️ **sᴘᴇᴇᴅ:** {format_size(current / elapsed_time.seconds if elapsed_time.seconds > 0 else 0)}/s\n"
+            f"💾 **sɪᴢᴇ:** {format_size(current)}/{format_size(total)}\n"
+            f"⏰ **ᴇʟᴀᴘsᴇᴅ:** {elapsed_minutes}m {elapsed_seconds}s\n\n"
+            f"👤 {message.from_user.mention}"
         )
         await update_status(status_message, status_text)
+
+    def generate_progress_bar(percentage, length=10):
+        # Modern, clean progress bar with emojis
+        filled_length = int(length * percentage // 100)
+        empty_length = length - filled_length
+        
+        # Unicode blocks for a cleaner look
+        bar = '█' * filled_length + '░' * empty_length
+        return f"`{bar}`"
 
     async def split_video_with_ffmpeg(input_path, output_prefix, split_size):
         try:
@@ -275,10 +411,17 @@ async def handle_message(client: Client, message: Message):
                 current_time = time.time()
                 if current_time - last_progress_update >= UPDATE_INTERVAL:
                     elapsed = datetime.now() - start_time
+                    
+                    # Clean split progress display
+                    progress_percentage = ((i+1) / parts) * 100
+                    progress_bar = generate_progress_bar(progress_percentage)
+                    
                     status_text = (
-                        f"✂️ Splitting {os.path.basename(input_path)}\n"
-                        f"Part {i+1}/{parts}\n"
-                        f"Elapsed: {elapsed.seconds // 60}m {elapsed.seconds % 60}s"
+                        f"✂️ **sᴘʟɪᴛᴛɪɴɢ ᴠɪᴅᴇᴏ**\n\n"
+                        f"**{os.path.basename(input_path)}**\n\n"
+                        f"{progress_bar} `{progress_percentage:.1f}%`\n\n"
+                        f"🔄 **ᴘᴀʀᴛ:** {i+1}/{parts}\n"
+                        f"⏰ **ᴇʟᴀᴘsᴇᴅ:** {elapsed.seconds // 60}m {elapsed.seconds % 60}s"
                     )
                     await update_status(status_message, status_text)
                     last_progress_update = current_time
@@ -305,9 +448,15 @@ async def handle_message(client: Client, message: Message):
         file_size = os.path.getsize(file_path)
         
         if file_size > SPLIT_SIZE:
+            # Clean splitting notification
+            progress_bar = generate_progress_bar(0)  # 0% progress to start
+            
             await update_status(
                 status_message,
-                f"✂️ Splitting {download.name} ({format_size(file_size)})"
+                f"✂️ **sᴘʟɪᴛᴛɪɴɢ ᴠɪᴅᴇᴏ**\n\n"
+                f"**{download.name}** ({format_size(file_size)})\n\n"
+                f"{progress_bar} `0.0%`\n\n"
+                f"🔄 **ᴘʀᴇᴘᴀʀɪɴɢ...**"
             )
             
             split_files = await split_video_with_ffmpeg(
@@ -319,10 +468,16 @@ async def handle_message(client: Client, message: Message):
             try:
                 for i, part in enumerate(split_files):
                     part_caption = f"{caption}\n\nPart {i+1}/{len(split_files)}"
+                    
+                    # Clean part upload notification
+                    progress_bar = generate_progress_bar(0)  # 0% progress to start
+                    
                     await update_status(
                         status_message,
-                        f"📤 Uploading part {i+1}/{len(split_files)}\n"
-                        f"{os.path.basename(part)}"
+                        f"📤 **ᴜᴘʟᴏᴀᴅɪɴɢ ᴘᴀʀᴛ {i+1}/{len(split_files)}**\n\n"
+                        f"**{os.path.basename(part)}**\n\n"
+                        f"{progress_bar} `0.0%`\n\n"
+                        f"🔄 **ᴘʀᴇᴘᴀʀɪɴɢ...**"
                     )
                     
                     if USER_SESSION_STRING:
@@ -350,10 +505,16 @@ async def handle_message(client: Client, message: Message):
                     try: os.remove(part)
                     except: pass
         else:
+            # Clean upload notification
+            progress_bar = generate_progress_bar(0)  # 0% progress to start
+            
             await update_status(
                 status_message,
-                f"📤 Uploading {download.name}\n"
-                f"Size: {format_size(file_size)}"
+                f"📤 **ᴜᴘʟᴏᴀᴅɪɴɢ**\n\n"
+                f"**{download.name}**\n\n"
+                f"{progress_bar} `0.0%`\n\n"
+                f"💾 **sɪᴢᴇ:** {format_size(file_size)}\n"
+                f"🔄 **ᴘʀᴇᴘᴀʀɪɴɢ...**"
             )
             
             if USER_SESSION_STRING:
@@ -386,6 +547,67 @@ async def handle_message(client: Client, message: Message):
         await message.delete()
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
+
+# Command to check user's requests
+@app.on_message(filters.command("myrequests"))
+async def my_requests_command(client: Client, message: Message):
+    user_id = message.from_user.id
+    if not message.from_user:
+        return
+
+    # Check for force subscription
+    is_member = await is_user_member(client, user_id)
+    if not is_member:
+        join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/jetmirror")
+        reply_markup = InlineKeyboardMarkup([[join_button]])
+        await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
+        return
+    
+    await message.reply_text(
+        "🔍 ᴛᴏ ᴄʜᴇᴄᴋ ᴛʜᴇ sᴛᴀᴛᴜs ᴏғ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛs, ᴘʟᴇᴀsᴇ ᴠɪsɪᴛ ᴏᴜʀ ᴄʜᴀɴɴᴇʟ:\n"
+        "https://t.me/jetmirror\n\n"
+        "ᴡᴇ ᴘᴏsᴛ ᴜᴘᴅᴀᴛᴇs ᴏɴ ᴘʀᴏᴄᴇssᴇᴅ ʀᴇǫᴜᴇsᴛs ᴛʜᴇʀᴇ."
+    )
+
+# Command to request a video
+@app.on_message(filters.command("request"))
+async def request_command(client: Client, message: Message):
+    user_id = message.from_user.id
+    if not message.from_user:
+        return
+
+    # Check for force subscription
+    is_member = await is_user_member(client, user_id)
+    if not is_member:
+        join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/jetmirror")
+        reply_markup = InlineKeyboardMarkup([[join_button]])
+        await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
+        return
+    
+    # Set user in request mode
+    users_in_request_mode[user_id] = {"state": "waiting_for_image"}
+    
+    # Send instructions
+    cancel_button = InlineKeyboardButton("ᴄᴀɴᴄᴇʟ ❌", callback_data="cancel_request")
+    reply_markup = InlineKeyboardMarkup([[cancel_button]])
+    
+    await message.reply_text(
+        "📸 ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴀ sᴄʀᴇᴇɴsʜᴏᴛ ᴏʀ ɪᴍᴀɢᴇ ᴏғ ᴛʜᴇ ᴠɪᴅᴇᴏ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ʀᴇǫᴜᴇsᴛ.",
+        reply_markup=reply_markup
+    )
+
+# Admin command to list pending requests
+@app.on_message(filters.command("pendingrequests") & filters.user([int(os.environ.get('ADMIN_ID', 0))]))
+async def pending_requests(client: Client, message: Message):
+    await message.reply_text("📊 ᴄʜᴇᴄᴋɪɴɢ ᴘᴇɴᴅɪɴɢ ʀᴇǫᴜᴇsᴛs ɪɴ ᴛʜᴇ ᴄʜᴀɴɴᴇʟ...")
+    
+    try:
+        # You can implement a more sophisticated pending requests system here
+        # For now, just redirect admin to the requests channel
+        await message.reply_text(f"ᴘʟᴇᴀsᴇ ᴄʜᴇᴄᴋ ᴛʜᴇ ʀᴇǫᴜᴇsᴛs ᴄʜᴀɴɴᴇʟ ғᴏʀ ᴘᴇɴᴅɪɴɢ ʀᴇǫᴜᴇsᴛs.")
+    except Exception as e:
+        logger.error(f"Error retrieving pending requests: {e}")
+        await message.reply_text("❌ ᴇʀʀᴏʀ ʀᴇᴛʀɪᴇᴠɪɴɢ ᴘᴇɴᴅɪɴɢ ʀᴇǫᴜᴇsᴛs.")
 
 flask_app = Flask(__name__)
 
