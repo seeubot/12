@@ -586,7 +586,7 @@ async def process_url(client, message, url):
         except:
             pass  # In case the status message can't be edited
 
-@app.on_message(filters.text & filters.private & ~filters.command)
+@app.on_message(filters.text & filters.private & ~filters.command())
 async def handle_links(client: Client, message: Message):
     """Handle incoming messages with links"""
     text = message.text.strip()
