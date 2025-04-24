@@ -116,6 +116,30 @@ def is_valid_url(url):
     return any(parsed_url.netloc.endswith(domain) for domain in VALID_DOMAINS)
 
 def format_size(size):
+    if isinstance(size, str):
+        try:
+            # Convert string like "66.78 MB" to bytes
+            parts = size.split()
+            if len(parts) != 2:
+                return size  # Return original if format isn't recognized
+            
+            value = float(parts[0])
+            unit = parts[1].upper()
+            
+            if unit == "B":
+                return value
+            elif unit == "KB":
+                return value * 1024
+            elif unit == "MB":
+                return value * 1024 * 1024
+            elif unit == "GB":
+                return value * 1024 * 1024 * 1024
+            else:
+                return size  # Return original if unit isn't recognized
+        except:
+            return size  # Return original on any error
+    
+    # If input is a number, format it
     if size < 1024:
         return f"{size} B"
     elif size < 1024 * 1024:
@@ -168,12 +192,23 @@ async def get_direct_link(url):
         
         if response.status_code == 200:
             data = response.json()
-            if data.get("success", False) and data.get("direct_link"):
-                return {
-                    "url": data["direct_link"],
-                    "name": data.get("filename", "terabox_file"),
-                    "size": data.get("size", 0)
-                }
+            
+            # Check if we have a successful response
+            if data.get("status") == "success" and "Extracted Info" in data:
+                info = data["Extracted Info"][0]  # Get the first item in the extracted info list
+                
+                if "Direct Download Link" in info:
+                    size_str = info.get("Size", "Unknown")
+                    title = info.get("Title", "terabox_file")
+                    
+                    # Convert size string to bytes if possible
+                    size_bytes = format_size(size_str)
+                    
+                    return {
+                        "url": info["Direct Download Link"],
+                        "name": title,
+                        "size": size_bytes if isinstance(size_bytes, (int, float)) else 0
+                    }
         
         logger.error(f"API Error: {response.text}")
         return None
