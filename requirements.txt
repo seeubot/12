@@ -1,6 +1,3 @@
-uvloop
-git+https://github.com/Hrishi2861/pyrofork-2.2.11-peer-fix.git
-pytz
 pyrogram==2.0.106
 tgcrypto==1.2.5
 aria2p==0.11.3
