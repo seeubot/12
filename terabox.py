@@ -757,18 +757,26 @@ async def handle_message(client: Client, message: Message):
                     # Calculate number of parts
                     num_parts = math.ceil(file_size / SPLIT_SIZE)
                     
-                    # Split command based on system
-                    if os.name == 'nt':  # Windows
-                        split_cmd = f'powershell -Command "Get-Content -Path "{download_path}" -ReadCount {SPLIT_SIZE} | ForEach-Object {{$i=0}} {{$_ | Set-Content "{split_dir}/{filename}.part{$i++}"}}"'
-                    else:  # Linux/Unix
-                        split_cmd = f'split -b {SPLIT_SIZE} "{download_path}" "{split_dir}/{filename}.part"'
-                    
-                    # Execute split command
-                    split_process = os.system(split_cmd)
-                    
-                    if split_process != 0:
-                        await update_status_message(status_message, "❌ ғᴀɪʟᴇᴅ ᴛᴏ sᴘʟɪᴛ ғɪʟᴇ.")
-                        return
+                   # Replace from line 762-769 (approximate)
+if os.name == 'nt':  # Windows
+    # Use Python's built-in file operations instead of PowerShell
+    split_process = 0  # Initialize as success
+    try:
+        with open(download_path, 'rb') as f:
+            part_num = 0
+            while True:
+                chunk = f.read(SPLIT_SIZE)
+                if not chunk:
+                    break
+                with open(f"{split_dir}/{filename}.part{part_num}", 'wb') as part_file:
+                    part_file.write(chunk)
+                part_num += 1
+    except Exception as e:
+        logger.error(f"Error splitting file: {e}")
+        split_process = 1  # Mark as failed
+else:  # Linux/Unix
+    split_cmd = f'split -b {SPLIT_SIZE} "{download_path}" "{split_dir}/{filename}.part"'
+    split_process = os.system(split_cmd)
                     
                     # Upload each part
                     split_files = sorted(os.listdir(split_dir))
