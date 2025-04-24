@@ -80,12 +80,9 @@ if len(FSUB_ID) == 0:
 else:
     FSUB_ID = int(FSUB_ID)
 
-REQUEST_CHANNEL_ID = os.environ.get('REQUEST_CHANNEL_ID', '')
-if len(REQUEST_CHANNEL_ID) == 0:
-    logging.error("REQUEST_CHANNEL_ID variable is missing! Exiting now")
-    exit(1)
-else:
-    REQUEST_CHANNEL_ID = int(REQUEST_CHANNEL_ID)
+# Use requestsids as the REQUEST_CHANNEL_ID
+REQUEST_CHANNEL_USERNAME = "requestsids"
+REQUEST_CHANNEL_ID = REQUEST_CHANNEL_USERNAME
 
 # Get admin IDs from environment variables
 ADMIN_IDS = os.environ.get('ADMIN_IDS', '')
@@ -137,9 +134,10 @@ if USER_SESSION_STRING:
         USER_SESSION_STRING = None
         user = None
 
-# Add function to fetch TeraBox link details
+# Enhanced function with backup methods to fetch TeraBox link details
 async def get_terabox_direct_link(url):
-    """Fetch direct download link and file details from TeraBox API"""
+    """Fetch direct download link and file details from TeraBox API with multiple fallback methods"""
+    # Try first API endpoint
     try:
         api_url = f"https://teraboxapi-phi.vercel.app/api?url={url}"
         response = requests.get(api_url, timeout=30)
@@ -148,19 +146,55 @@ async def get_terabox_direct_link(url):
             data = response.json()
             
             # Check if API returned success
-            if data.get('success', False):
+            if data.get('success', False) and data.get('direct_link'):
                 return {
                     'direct_link': data.get('direct_link', ''),
                     'filename': data.get('filename', ''),
                     'size': data.get('size', 0),
                     'success': True
                 }
-        
-        # Return failure if any condition fails
-        return {'success': False, 'error': 'Failed to fetch link details'}
     except Exception as e:
-        logger.error(f"Error fetching TeraBox link details: {e}")
-        return {'success': False, 'error': str(e)}
+        logger.error(f"First API method failed: {e}")
+    
+    # Try alternative method 1 - second API endpoint
+    try:
+        url_encoded = urllib.parse.quote_plus(url)
+        alt_api_url = f"https://terabox-dl.herokuapp.com/api?url={url_encoded}"
+        response = requests.get(alt_api_url, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if data.get('status') == "success" and data.get('dl_link'):
+                return {
+                    'direct_link': data.get('dl_link', ''),
+                    'filename': data.get('filename', ''),
+                    'size': data.get('size', 0),
+                    'success': True
+                }
+    except Exception as e:
+        logger.error(f"Second API method failed: {e}")
+    
+    # Try alternative method 2 - third API endpoint
+    try:
+        alt_api_url2 = f"https://terabox-dl-api.vercel.app/api?url={url}"
+        response = requests.get(alt_api_url2, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if data.get('direct_link'):
+                return {
+                    'direct_link': data.get('direct_link', ''),
+                    'filename': data.get('filename', ''),
+                    'size': data.get('size', 0),
+                    'success': True
+                }
+    except Exception as e:
+        logger.error(f"Third API method failed: {e}")
+        
+    # If all methods fail, return failure
+    return {'success': False, 'error': 'All methods to fetch link details failed'}
 
 async def is_user_member(client, user_id):
     try:
@@ -175,6 +209,8 @@ async def is_user_member(client, user_id):
 
 async def is_admin(user_id):
     """Check if a user is an admin"""
+    if user_id is None:
+        return False
     return user_id in ADMIN_IDS
     
 def is_valid_url(url):
@@ -217,7 +253,7 @@ def generate_progress_bar(percentage, length=10):
 @app.on_message(filters.command("start"))
 async def start_command(client: Client, message: Message):
     # Reset any request mode for the user
-    if message.from_user.id in users_in_request_mode:
+    if message.from_user and message.from_user.id in users_in_request_mode:
         del users_in_request_mode[message.from_user.id]
         
     join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/dailydiskwala")
@@ -225,7 +261,7 @@ async def start_command(client: Client, message: Message):
     repo69 = InlineKeyboardButton("Requested videos", url="https://t.me/dailydiskwala")
     request_button = InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴠɪᴅᴇᴏ 🎬", callback_data="request_video")
     
-    user_mention = message.from_user.mention
+    user_mention = message.from_user.mention if message.from_user else "User"
     reply_markup = InlineKeyboardMarkup([
         [join_button, developer_button], 
         [repo69],
@@ -233,7 +269,7 @@ async def start_command(client: Client, message: Message):
     ])
     
     # Check if user is admin and add admin commands button
-    if await is_admin(message.from_user.id):
+    if message.from_user and await is_admin(message.from_user.id):
         admin_button = InlineKeyboardButton("ᴀᴅᴍɪɴ ᴄᴏᴍᴍᴀɴᴅs 🛠️", callback_data="admin_commands")
         reply_markup = InlineKeyboardMarkup([
             [join_button, developer_button], 
@@ -259,7 +295,7 @@ async def start_command(client: Client, message: Message):
 @app.on_message(filters.command("admin"))
 async def admin_commands(client: Client, message: Message):
     """Display admin commands"""
-    if not await is_admin(message.from_user.id):
+    if not message.from_user or not await is_admin(message.from_user.id):
         await message.reply_text("⚠️ You are not authorized to use admin commands.")
         return
     
@@ -275,7 +311,7 @@ async def admin_commands(client: Client, message: Message):
 @app.on_message(filters.command("pending"))
 async def pending_requests_command(client: Client, message: Message):
     """Show pending video requests to admins"""
-    if not await is_admin(message.from_user.id):
+    if not message.from_user or not await is_admin(message.from_user.id):
         await message.reply_text("⚠️ You are not authorized to use this command.")
         return
     
@@ -305,7 +341,8 @@ async def pending_requests_command(client: Client, message: Message):
 @app.on_message(filters.command("approve"))
 async def approve_request(client: Client, message: Message):
     """Approve a video request"""
-    if not await is_admin(message.from_user.id):
+    # Fix for NoneType error - check if message.from_user exists
+    if not message.from_user or not await is_admin(message.from_user.id):
         await message.reply_text("⚠️ You are not authorized to use this command.")
         return
     
@@ -346,7 +383,8 @@ async def approve_request(client: Client, message: Message):
 @app.on_message(filters.command("reject"))
 async def reject_request(client: Client, message: Message):
     """Reject a video request"""
-    if not await is_admin(message.from_user.id):
+    # Fix for NoneType error - check if message.from_user exists
+    if not message.from_user or not await is_admin(message.from_user.id):
         await message.reply_text("⚠️ You are not authorized to use this command.")
         return
     
@@ -387,7 +425,8 @@ async def reject_request(client: Client, message: Message):
 @app.on_message(filters.command("notify"))
 async def notify_user(client: Client, message: Message):
     """Send notification to a user"""
-    if not await is_admin(message.from_user.id):
+    # Fix for NoneType error - check if message.from_user exists
+    if not message.from_user or not await is_admin(message.from_user.id):
         await message.reply_text("⚠️ You are not authorized to use this command.")
         return
     
@@ -416,7 +455,8 @@ async def notify_user(client: Client, message: Message):
 @app.on_message(filters.command("file_ready"))
 async def file_ready_notification(client: Client, message: Message):
     """Notify user that their requested file is ready"""
-    if not await is_admin(message.from_user.id):
+    # Fix for NoneType error - check if message.from_user exists
+    if not message.from_user or not await is_admin(message.from_user.id):
         await message.reply_text("⚠️ You are not authorized to use this command.")
         return
     
@@ -466,6 +506,10 @@ async def file_ready_notification(client: Client, message: Message):
 
 @app.on_callback_query()
 async def handle_callback(client, callback_query):
+    if not callback_query.from_user:
+        await callback_query.answer("Error: User information not available.")
+        return
+    
     user_id = callback_query.from_user.id
     
     # Check for force subscription
@@ -520,295 +564,364 @@ async def update_status_message(status_message, text):
     except Exception as e:
         logger.error(f"Failed to update status message: {e}")
 
-@app.on_message(filters.photo)
-async def handle_photo(client: Client, message: Message):
+@app.on_message(filters.photo & filters.private)
+async def handle_photo(client, message):
+    """Handle photo uploads for video requests"""
+    if not message.from_user:
+        await message.reply_text("Error: User information not available.")
+        return
+    
     user_id = message.from_user.id
     
     # Check if user is in request mode
-    if user_id in users_in_request_mode and users_in_request_mode[user_id]["state"] == "waiting_for_image":
-        # Update user state
-        users_in_request_mode[user_id] = {"state": "waiting_for_description"}
-        
-        # Save the photo_id for later
-        users_in_request_mode[user_id]["photo_id"] = message.photo.file_id
-        
-        # Ask for description
-        cancel_button = InlineKeyboardButton("ᴄᴀɴᴄᴇʟ ❌", callback_data="cancel_request")
-        reply_markup = InlineKeyboardMarkup([[cancel_button]])
-        
-        await message.reply_text(
-            "✍️ ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴀ ᴅᴇsᴄʀɪᴘᴛɪᴏɴ ᴏʀ ɴᴀᴍᴇ ᴏғ ᴛʜᴇ ᴠɪᴅᴇᴏ ʏᴏᴜ'ʀᴇ ʀᴇǫᴜᴇsᴛɪɴɢ.",
-            reply_markup=reply_markup
-        )
+    if user_id not in users_in_request_mode or users_in_request_mode[user_id]["state"] != "waiting_for_image":
+        # User just sent a photo without being in request mode
+        await message.reply_text("🎬 Do you want to request this video? Please use the /start command and click on 'Request Video' button.")
         return
+    
+    # Check for force subscription
+    is_member = await is_user_member(client, user_id)
+    if not is_member:
+        join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/dailydiskwala")
+        reply_markup = InlineKeyboardMarkup([[join_button]])
+        await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
+        return
+    
+    # Store the photo file_id
+    photo_file_id = message.photo[-1].file_id
+    users_in_request_mode[user_id]["photo_id"] = photo_file_id
+    users_in_request_mode[user_id]["state"] = "waiting_for_description"
+    
+    # Request description
+    cancel_button = InlineKeyboardButton("ᴄᴀɴᴄᴇʟ ❌", callback_data="cancel_request")
+    reply_markup = InlineKeyboardMarkup([[cancel_button]])
+    
+    await message.reply_text(
+        "📝 ɴᴏᴡ ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴀ ᴅᴇsᴄʀɪᴘᴛɪᴏɴ ᴏғ ᴛʜᴇ ᴠɪᴅᴇᴏ (ɴᴀᴍᴇ, ᴇᴘɪsᴏᴅᴇ, ᴇᴛᴄ.)",
+        reply_markup=reply_markup
+    )
 
-@app.on_message(filters.text)
-async def handle_message(client: Client, message: Message):
-    if message.text.startswith('/'):
-        if not message.text.startswith('/start'):
-            return
+@app.on_message(filters.text & filters.private)
+async def handle_text(client, message):
+    """Handle text messages, including TeraBox links and request descriptions"""
+    if not message.from_user:
+        await message.reply_text("Error: User information not available.")
+        return
     
     user_id = message.from_user.id
-    if not message.from_user:
+    text = message.text
+    
+    # Don't process commands
+    if text.startswith("/"):
         return
-
-    # Check if user is in request mode and waiting for description
+    
+    # Check for force subscription
+    is_member = await is_user_member(client, user_id)
+    if not is_member:
+        join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/dailydiskwala")
+        reply_markup = InlineKeyboardMarkup([[join_button]])
+        await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
+        return
+    
+    # Handle video request description
     if user_id in users_in_request_mode and users_in_request_mode[user_id]["state"] == "waiting_for_description":
-        # Process the video request
+        description = text
         photo_id = users_in_request_mode[user_id]["photo_id"]
-        description = message.text
         
-        # Reset user state
-        del users_in_request_mode[user_id]
-        
-        # Check for force subscription
-        is_member = await is_user_member(client, user_id)
-        if not is_member:
-            join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/terao2")
-            reply_markup = InlineKeyboardMarkup([[join_button]])
-            await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
-            return
-        
-        # Generate a unique request ID (timestamp + user ID)
+        # Generate a unique request ID
         request_id = f"REQ{int(time.time())}{user_id % 1000}"
         
-        # Store the request
+        # Store request information
         pending_requests[request_id] = {
-            'user_id': user_id,
-            'user_mention': message.from_user.mention,
-            'photo_id': photo_id,
-            'description': description,
-            'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'status': 'pending'
+            "user_id": user_id,
+            "user_mention": message.from_user.mention,
+            "photo_id": photo_id,
+            "description": description,
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "status": "pending"
         }
         
-        # Notify user
+        # Clear user from request mode
+        del users_in_request_mode[user_id]
+        
+        # Notify user about their request
         await message.reply_text(
             f"✅ ʏᴏᴜʀ ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛ ʜᴀs ʙᴇᴇɴ sᴜʙᴍɪᴛᴛᴇᴅ!\n\n"
-            f"🆔 **ʀᴇǫᴜᴇsᴛ ɪᴅ:** `{request_id}`\n"
-            f"📝 **ᴅᴇsᴄʀɪᴘᴛɪᴏɴ:** {description}\n\n"
-            f"⏳ ᴡᴇ ᴡɪʟʟ ɴᴏᴛɪғʏ ʏᴏᴜ ᴡʜᴇɴ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ɪs ᴘʀᴏᴄᴇssᴇᴅ."
+            f"🆔 ʀᴇǫᴜᴇsᴛ ɪᴅ: `{request_id}`\n"
+            f"📝 ᴅᴇsᴄʀɪᴘᴛɪᴏɴ: {description}\n\n"
+            f"ᴡᴇ ᴡɪʟʟ ɴᴏᴛɪғʏ ʏᴏᴜ ᴡʜᴇɴ ʏᴏᴜʀ ᴠɪᴅᴇᴏ ɪs ᴀᴠᴀɪʟᴀʙʟᴇ."
         )
         
-        # Forward the request to the request channel
+        # Forward request to admins
         try:
-            # First forward the photo
-            forwarded_photo = await client.send_photo(
-                chat_id=REQUEST_CHANNEL_ID,
+            # First send the photo
+            sent_photo = await client.send_photo(
+                chat_id=DUMP_CHAT_ID,
                 photo=photo_id,
-                caption=f"🆕 **ɴᴇᴡ ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛ**\n\n"
-                        f"🆔 **ʀᴇǫᴜᴇsᴛ ɪᴅ:** `{request_id}`\n"
-                        f"👤 **ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ:** {message.from_user.mention} (`{user_id}`)\n"
-                        f"📝 **ᴅᴇsᴄʀɪᴘᴛɪᴏɴ:** {description}\n"
-                        f"⏰ **ᴛɪᴍᴇ:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                caption=f"📥 **ɴᴇᴡ ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛ**\n\n"
+                       f"🆔 **ʀᴇǫᴜᴇsᴛ ɪᴅ:** `{request_id}`\n"
+                       f"👤 **ᴜsᴇʀ:** {message.from_user.mention} (`{user_id}`)\n"
+                       f"📝 **ᴅᴇsᴄʀɪᴘᴛɪᴏɴ:** {description}\n\n"
+                       f"ᴜsᴇ `/approve {request_id}` ᴏʀ `/reject {request_id} [reason]` ᴛᴏ ʀᴇsᴘᴏɴᴅ."
             )
             
-            # Add approval/rejection buttons for admins
-            approve_button = InlineKeyboardButton("✅ ᴀᴘᴘʀᴏᴠᴇ", callback_data=f"approve_{request_id}")
-            reject_button = InlineKeyboardButton("❌ ʀᴇᴊᴇᴄᴛ", callback_data=f"reject_{request_id}")
-            admin_reply_markup = InlineKeyboardMarkup([[approve_button, reject_button]])
-            
-            # Add buttons to the forwarded message
-            await forwarded_photo.edit_reply_markup(admin_reply_markup)
-            
+            logger.info(f"New video request forwarded to admins: {request_id}")
         except Exception as e:
-            logger.error(f"Failed to forward request to channel: {e}")
-            # Still continue as the user's request has been registered
+            logger.error(f"Failed to forward video request to admins: {e}")
         
         return
     
-    # Check for TeraBox URL
-    if is_valid_url(message.text):
-        # Check for force subscription
-        is_member = await is_user_member(client, user_id)
-        if not is_member:
-            join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/terao2")
-            reply_markup = InlineKeyboardMarkup([[join_button]])
-            await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
-            return
+    # Handle TeraBox links
+    if is_valid_url(text):
+        # Send a status message
+        status_message = await message.reply_text("🔍 ᴠᴀʟɪᴅ ᴛᴇʀᴀʙᴏx ʟɪɴᴋ ᴅᴇᴛᴇᴄᴛᴇᴅ! ᴘʀᴏᴄᴇssɪɴɢ...")
         
-        # Send initial processing message
-        status_message = await message.reply_text("⏳ ᴘʀᴏᴄᴇssɪɴɢ ʏᴏᴜʀ ᴛᴇʀᴀʙᴏx ʟɪɴᴋ...")
-        
-        terabox_url = message.text.strip()
-        
+        # Get file info
         try:
-            # Update status
-            await update_status_message(status_message, "🔍 ғᴇᴛᴄʜɪɴɢ ғɪʟᴇ ɪɴғᴏʀᴍᴀᴛɪᴏɴ...")
+            await update_status_message(status_message, "⏳ ғᴇᴛᴄʜɪɴɢ ғɪʟᴇ ɪɴғᴏʀᴍᴀᴛɪᴏɴ...")
+            file_info = await get_terabox_direct_link(text)
             
-            # Get TeraBox direct link
-            link_info = await get_terabox_direct_link(terabox_url)
-            
-            if not link_info['success']:
-                await update_status_message(status_message, f"❌ ғᴀɪʟᴇᴅ ᴛᴏ ᴘʀᴏᴄᴇss ʟɪɴᴋ: {link_info.get('error', 'Unknown error')}")
+            if not file_info['success']:
+                await update_status_message(status_message, f"❌ ғᴀɪʟᴇᴅ ᴛᴏ ᴘʀᴏᴄᴇss ʟɪɴᴋ: {file_info.get('error', 'Unknown error')}")
                 return
+                
+            direct_link = file_info['direct_link']
+            filename = file_info.get('filename', 'terabox_file')
+            size = file_info.get('size', 0)
             
-            direct_link = link_info['direct_link']
-            filename = link_info['filename']
-            file_size = link_info['size']
+            # Format file information
+            file_size_formatted = format_size(size)
             
-            # Update with file info
-            await update_status_message(
-                status_message, 
-                f"📁 **ғɪʟᴇ ᴅᴇᴛᴀɪʟs:**\n\n"
-                f"**ɴᴀᴍᴇ:** `{filename}`\n"
-                f"**sɪᴢᴇ:** `{format_size(file_size)}`\n\n"
+            await update_status_message(status_message, 
+                f"✅ ғɪʟᴇ ɪɴғᴏ ʀᴇᴛʀɪᴇᴠᴇᴅ!\n\n"
+                f"📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n"
+                f"📊 **sɪᴢᴇ:** {file_size_formatted}\n\n"
                 f"⏳ sᴛᴀʀᴛɪɴɢ ᴅᴏᴡɴʟᴏᴀᴅ..."
             )
             
-            # Check if aria2 is available
-            if not aria2:
-                await update_status_message(status_message, "❌ ᴅᴏᴡɴʟᴏᴀᴅ ᴇɴɢɪɴᴇ ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ.")
-                return
-            
-            # Start download with aria2
-            download = aria2.add_uris([direct_link], {'dir': '/app/downloads/', 'out': filename})
-            download_id = download.gid
-            
-            # Monitor download progress
-            last_update_time = 0
-            while download.is_active or download.is_waiting:
-                download = aria2.get_download(download_id)
-                
-                # Update status every 3 seconds to avoid flooding
-                current_time = time.time()
-                if current_time - last_update_time >= 3:
-                    last_update_time = current_time
-                    
-                    # Calculate progress percentage
-                    if download.total_length > 0:
-                        progress = download.completed_length / download.total_length * 100
-                    else:
-                        progress = 0
-                    
-                    # Calculate speed and ETA
-                    speed = download.download_speed
-                    if speed > 0 and download.total_length > 0:
-                        eta = (download.total_length - download.completed_length) / speed
-                    else:
-                        eta = 0
-                    
-                    # Update progress message
-                    progress_bar = generate_progress_bar(progress)
-                    await update_status_message(
-                        status_message,
-                        f"📥 **ᴅᴏᴡɴʟᴏᴀᴅɪɴɢ...**\n\n"
-                        f"**ɴᴀᴍᴇ:** `{filename}`\n"
-                        f"**sɪᴢᴇ:** `{format_size(download.total_length)}`\n"
-                        f"**ᴘʀᴏɢʀᴇss:** {progress_bar} `{progress:.1f}%`\n"
-                        f"**ᴅᴏᴡɴʟᴏᴀᴅᴇᴅ:** `{format_size(download.completed_length)}`\n"
-                        f"**sᴘᴇᴇᴅ:** `{format_size(speed)}/s`\n"
-                        f"**ᴇᴛᴀ:** `{format_eta(eta)}`"
-                    )
-                
-                await asyncio.sleep(1)
-            
-            # Check if download completed successfully
-            if download.status == 'complete':
-                await update_status_message(status_message, f"✅ ᴅᴏᴡɴʟᴏᴀᴅ ᴄᴏᴍᴘʟᴇᴛᴇᴅ!\n\n**ɴᴀᴍᴇ:** `{filename}`\n**sɪᴢᴇ:** `{format_size(download.total_length)}`\n\n⏳ ᴘʀᴇᴘᴀʀɪɴɢ ᴛᴏ ᴜᴘʟᴏᴀᴅ...")
-                
-                # Get the downloaded file path
-                file_path = os.path.join('/app/downloads/', filename)
-                
-                # Check if file exists
-                if not os.path.exists(file_path):
-                    await update_status_message(status_message, "❌ ᴇʀʀᴏʀ: ᴅᴏᴡɴʟᴏᴀᴅᴇᴅ ғɪʟᴇ ɴᴏᴛ ғᴏᴜɴᴅ.")
-                    return
-                
-                # Check file size
-                file_size = os.path.getsize(file_path)
-                
-                # Upload the file to Telegram
+            # Download the file using aria2
+            if aria2:
                 try:
-                    # Determine if we need to use the user client for large files
-                    if file_size > SPLIT_SIZE or file_size > 2000 * 1024 * 1024:  # > 2GB
-                        if user and USER_SESSION_STRING:
-                            await update_status_message(status_message, f"📤 ᴜᴘʟᴏᴀᴅɪɴɢ ᴠɪᴀ ᴜsᴇʀ ᴄʟɪᴇɴᴛ...\n\n**ɴᴀᴍᴇ:** `{filename}`\n**sɪᴢᴇ:** `{format_size(file_size)}`")
-                            
-                            # Upload to dump channel first
-                            sent_message = await user.send_document(
-                                chat_id=DUMP_CHAT_ID,
-                                document=file_path,
-                                caption=f"📁 **ғɪʟᴇ ɴᴀᴍᴇ:** `{filename}`\n**sɪᴢᴇ:** `{format_size(file_size)}`\n\n**ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ:** {message.from_user.mention}"
-                            )
-                            
-                            # Forward to user
-                            await sent_message.forward(message.chat.id)
-                            
-                            # Delete the status message
-                            await status_message.delete()
-                        else:
-                            await update_status_message(status_message, f"❌ ғɪʟᴇ ɪs ᴛᴏᴏ ʟᴀʀɢᴇ ᴛᴏ ᴜᴘʟᴏᴀᴅ ᴠɪᴀ ʙᴏᴛ (`{format_size(file_size)}`). ᴄᴏɴᴛᴀᴄᴛ ᴀᴅᴍɪɴ.")
-                    else:
-                        # File is small enough for bot upload
-                        await update_status_message(status_message, f"📤 ᴜᴘʟᴏᴀᴅɪɴɢ ᴛᴏ ᴛᴇʟᴇɢʀᴀᴍ...\n\n**ɴᴀᴍᴇ:** `{filename}`\n**sɪᴢᴇ:** `{format_size(file_size)}`")
+                    download = aria2.add_uris([direct_link], {'dir': '/tmp', 'out': filename})
+                    download_id = download.gid
+                    
+                    # Update progress
+                    progress_message = (
+                        f"📥 **ᴅᴏᴡɴʟᴏᴀᴅɪɴɢ...**\n\n"
+                        f"📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n"
+                        f"📊 **sɪᴢᴇ:** {file_size_formatted}\n"
+                        f"⏱️ **ᴇᴛᴀ:** calculating...\n"
+                        f"🔄 **ᴘʀᴏɢʀᴇss:** 0%\n"
+                        f"{generate_progress_bar(0)}"
+                    )
+                    await update_status_message(status_message, progress_message)
+                    
+                    # Monitor download progress
+                    previous_progress = 0
+                    last_update_time = time.time()
+                    
+                    while True:
+                        download = aria2.get_download(download_id)
                         
-                        # Upload via bot
-                        await message.reply_document(
-                            document=file_path,
-                            caption=f"📁 **ғɪʟᴇ ɴᴀᴍᴇ:** `{filename}`\n**sɪᴢᴇ:** `{format_size(file_size)}`\n\n**ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ:** {message.from_user.mention}"
+                        if download.is_complete:
+                            await update_status_message(status_message, 
+                                f"✅ **ᴅᴏᴡɴʟᴏᴀᴅ ᴄᴏᴍᴘʟᴇᴛᴇ!**\n\n"
+                                f"📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n"
+                                f"📊 **sɪᴢᴇ:** {file_size_formatted}\n\n"
+                                f"⏳ ᴘʀᴇᴘᴀʀɪɴɢ ᴛᴏ ᴜᴘʟᴏᴀᴅ..."
+                            )
+                            break
+                        
+                        if download.has_failed:
+                            await update_status_message(status_message, 
+                                f"❌ **ᴅᴏᴡɴʟᴏᴀᴅ ғᴀɪʟᴇᴅ!**\n\n"
+                                f"📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n"
+                                f"⚠️ **ᴇʀʀᴏʀ:** {download.error_message}\n\n"
+                                f"ᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ ʟᴀᴛᴇʀ."
+                            )
+                            return
+                        
+                        progress = round(download.progress * 100, 2)
+                        current_time = time.time()
+                        
+                        # Update UI only if progress changed by at least 2% or 3 seconds passed
+                        if (progress - previous_progress >= 2) or (current_time - last_update_time >= 3):
+                            previous_progress = progress
+                            last_update_time = current_time
+                            
+                            download_speed = format_size(download.download_speed) + "/s"
+                            eta_seconds = download.eta
+                            eta = format_eta(eta_seconds)
+                            
+                            progress_message = (
+                                f"📥 **ᴅᴏᴡɴʟᴏᴀᴅɪɴɢ...**\n\n"
+                                f"📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n"
+                                f"📊 **sɪᴢᴇ:** {file_size_formatted}\n"
+                                f"⚡ **sᴘᴇᴇᴅ:** {download_speed}\n"
+                                f"⏱️ **ᴇᴛᴀ:** {eta}\n"
+                                f"🔄 **ᴘʀᴏɢʀᴇss:** {progress}%\n"
+                                f"{generate_progress_bar(progress)}"
+                            )
+                            await update_status_message(status_message, progress_message)
+                        
+                        await asyncio.sleep(1)
+                    
+                    # File is downloaded, now upload to Telegram
+                    filepath = os.path.join('/tmp', filename)
+                    file_size = os.path.getsize(filepath)
+                    
+                    # Check if file size exceeds Telegram limit (2GB for normal bots, 4GB for premium users)
+                    if file_size > SPLIT_SIZE:
+                        await update_status_message(status_message, 
+                            f"⚠️ **ғɪʟᴇ ᴇxᴄᴇᴇᴅs ᴛᴇʟᴇɢʀᴀᴍ ʟɪᴍɪᴛ**\n\n"
+                            f"📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n"
+                            f"📊 **sɪᴢᴇ:** {file_size_formatted}\n\n"
+                            f"ᴜᴘʟᴏᴀᴅɪɴɢ ᴛᴏ ʏᴏᴜʀ ᴅᴜᴍᴘ ᴄʜᴀɴɴᴇʟ..."
                         )
                         
-                        # Delete the status message
-                        await status_message.delete()
-                
+                        # Upload to dump channel
+                        try:
+                            await update_status_message(status_message, "📤 ᴜᴘʟᴏᴀᴅɪɴɢ ᴛᴏ ᴅᴜᴍᴘ ᴄʜᴀɴɴᴇʟ...")
+                            
+                            # Upload using user account if available
+                            if user:
+                                sent_message = await user.send_document(
+                                    chat_id=DUMP_CHAT_ID,
+                                    document=filepath,
+                                    caption=f"📤 **ғɪʟᴇ ᴜᴘʟᴏᴀᴅᴇᴅ**\n\n📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n📊 **sɪᴢᴇ:** {file_size_formatted}\n🔗 **sᴏᴜʀᴄᴇ:** {text}",
+                                    progress=progress_callback,
+                                    progress_args=(status_message, filename, file_size_formatted)
+                                )
+                                
+                                # Create shareable link
+                                link = f"https://t.me/c/{str(DUMP_CHAT_ID)[4:]}/{sent_message.id}"
+                                
+                                await update_status_message(status_message,
+                                    f"✅ **ᴜᴘʟᴏᴀᴅ ᴄᴏᴍᴘʟᴇᴛᴇ!**\n\n"
+                                    f"📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n"
+                                    f"📊 **sɪᴢᴇ:** {file_size_formatted}\n\n"
+                                    f"📥 **ᴅᴏᴡɴʟᴏᴀᴅ ғʀᴏᴍ:** [Dump Channel]({link})"
+                                )
+                            else:
+                                await update_status_message(status_message,
+                                    f"⚠️ **ғɪʟᴇ ᴛᴏᴏ ʟᴀʀɢᴇ ғᴏʀ ʙᴏᴛ ᴜᴘʟᴏᴀᴅ**\n\n"
+                                    f"📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n"
+                                    f"📊 **sɪᴢᴇ:** {file_size_formatted}\n\n"
+                                    f"ᴘʟᴇᴀsᴇ ᴄᴏɴᴛᴀᴄᴛ ᴀᴅᴍɪɴs ғᴏʀ ᴀssɪsᴛᴀɴᴄᴇ."
+                                )
+                        except Exception as e:
+                            logger.error(f"Failed to upload large file to dump channel: {e}")
+                            await update_status_message(status_message,
+                                f"❌ **ᴜᴘʟᴏᴀᴅ ғᴀɪʟᴇᴅ!**\n\n"
+                                f"📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n"
+                                f"⚠️ **ᴇʀʀᴏʀ:** Failed to upload large file.\n\n"
+                                f"ᴘʟᴇᴀsᴇ ᴄᴏɴᴛᴀᴄᴛ ᴀᴅᴍɪɴs ғᴏʀ ᴀssɪsᴛᴀɴᴄᴇ."
+                            )
+                    else:
+                        # File is within Telegram limits, upload directly
+                        try:
+                            await update_status_message(status_message, 
+                                f"📤 **ᴜᴘʟᴏᴀᴅɪɴɢ ᴛᴏ ᴛᴇʟᴇɢʀᴀᴍ...**\n\n"
+                                f"📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n"
+                                f"📊 **sɪᴢᴇ:** {file_size_formatted}\n"
+                                f"🔄 **ᴘʀᴏɢʀᴇss:** 0%\n"
+                                f"{generate_progress_bar(0)}"
+                            )
+                            
+                            # Determine if it's a video or document based on extension
+                            video_extensions = ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.webm']
+                            is_video = any(filename.lower().endswith(ext) for ext in video_extensions)
+                            
+                            # Send as video or document based on file type
+                            if is_video:
+                                await client.send_video(
+                                    chat_id=message.chat.id,
+                                    video=filepath,
+                                    caption=f"📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n📊 **sɪᴢᴇ:** {file_size_formatted}\n🔗 **sᴏᴜʀᴄᴇ:** TeraBox",
+                                    progress=progress_callback,
+                                    progress_args=(status_message, filename, file_size_formatted)
+                                )
+                            else:
+                                await client.send_document(
+                                    chat_id=message.chat.id,
+                                    document=filepath,
+                                    caption=f"📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n📊 **sɪᴢᴇ:** {file_size_formatted}\n🔗 **sᴏᴜʀᴄᴇ:** TeraBox",
+                                    progress=progress_callback,
+                                    progress_args=(status_message, filename, file_size_formatted)
+                                )
+                            
+                            await update_status_message(status_message, f"✅ **ᴜᴘʟᴏᴀᴅ ᴄᴏᴍᴘʟᴇᴛᴇ!**\n\n📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n📊 **sɪᴢᴇ:** {file_size_formatted}")
+                        except Exception as e:
+                            logger.error(f"Failed to upload file: {e}")
+                            await update_status_message(status_message, f"❌ **ᴜᴘʟᴏᴀᴅ ғᴀɪʟᴇᴅ!**\n\n📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n⚠️ **ᴇʀʀᴏʀ:** {str(e)[:100]}...")
+                    
+                    # Clean up
+                    try:
+                        os.remove(filepath)
+                    except Exception as e:
+                        logger.error(f"Failed to clean up file {filepath}: {e}")
+                    
                 except Exception as e:
-                    logger.error(f"Upload error: {e}")
-                    await update_status_message(status_message, f"❌ ᴜᴘʟᴏᴀᴅ ғᴀɪʟᴇᴅ: {str(e)[:100]}...")
-                
-                # Clean up the downloaded file
-                try:
-                    os.remove(file_path)
-                except Exception as e:
-                    logger.error(f"Error removing file: {e}")
+                    logger.error(f"Aria2 download failed: {e}")
+                    await update_status_message(status_message, f"❌ **ᴅᴏᴡɴʟᴏᴀᴅ ғᴀɪʟᴇᴅ!**\n\n⚠️ **ᴇʀʀᴏʀ:** {str(e)[:100]}...")
             else:
-                # Download failed
-                await update_status_message(status_message, f"❌ ᴅᴏᴡɴʟᴏᴀᴅ ғᴀɪʟᴇᴅ: {download.error_message}")
+                await update_status_message(status_message, "❌ **ᴀʀɪᴀ2 ᴅᴏᴡɴʟᴏᴀᴅᴇʀ ɪs ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ.**\n\nᴘʟᴇᴀsᴇ ᴄᴏɴᴛᴀᴄᴛ ᴛʜᴇ ᴀᴅᴍɪɴ.")
         
         except Exception as e:
-            logger.error(f"Process error: {e}")
-            await update_status_message(status_message, f"❌ ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ: {str(e)[:100]}...")
+            logger.error(f"Error processing TeraBox link: {e}")
+            await update_status_message(status_message, f"❌ **ᴇʀʀᴏʀ ᴘʀᴏᴄᴇssɪɴɢ ʟɪɴᴋ!**\n\n⚠️ **ᴇʀʀᴏʀ:** {str(e)[:100]}...")
+
+async def progress_callback(current, total, status_message, filename, size_str):
+    """Callback for upload progress updates"""
+    if total == 0:
+        return
+    
+    global last_update_time
+    now = time.time()
+    
+    # Update only if at least 1 second passed or it's the first/last update
+    if now - last_update_time < 1 and 0 < current < total:
+        return
+    
+    last_update_time = now
+    
+    percentage = round((current * 100) / total, 2)
+    
+    progress_message = (
+        f"📤 **ᴜᴘʟᴏᴀᴅɪɴɢ ᴛᴏ ᴛᴇʟᴇɢʀᴀᴍ...**\n\n"
+        f"📋 **ғɪʟᴇɴᴀᴍᴇ:** `{filename}`\n"
+        f"📊 **sɪᴢᴇ:** {size_str}\n"
+        f"🔄 **ᴘʀᴏɢʀᴇss:** {percentage}%\n"
+        f"{generate_progress_bar(percentage)}"
+    )
+    
+    try:
+        await status_message.edit_text(progress_message)
+    except Exception as e:
+        logger.error(f"Failed to update progress message: {e}")
 
 @app.on_message(filters.command("stats"))
 async def stats_command(client: Client, message: Message):
     """Show bot statistics to admins"""
-    if not await is_admin(message.from_user.id):
+    if not message.from_user or not await is_admin(message.from_user.id):
         await message.reply_text("⚠️ You are not authorized to use this command.")
         return
     
-    # Collect stats
-    pending_count = len([req for req_id, req in pending_requests.items() if req.get('status', '') == 'pending'])
-    approved_count = len([req for req_id, req in pending_requests.items() if req.get('status', '') == 'approved'])
+    pending_count = len([r for r in pending_requests.values() if r.get('status') == 'pending'])
+    approved_count = len([r for r in pending_requests.values() if r.get('status') == 'approved'])
     
     stats_text = (
-        "📊 **ʙᴏᴛ sᴛᴀᴛɪsᴛɪᴄs**\n\n"
-        f"📝 **ᴘᴇɴᴅɪɴɢ ʀᴇǫᴜᴇsᴛs:** `{pending_count}`\n"
-        f"✅ **ᴀᴘᴘʀᴏᴠᴇᴅ ʀᴇǫᴜᴇsᴛs:** `{approved_count}`\n"
+        "📊 **ʙᴏᴛ sᴛᴀᴛɪsᴛɪᴄs:**\n\n"
+        f"📝 **ᴘᴇɴᴅɪɴɢ ʀᴇǫᴜᴇsᴛs:** {pending_count}\n"
+        f"✅ **ᴀᴘᴘʀᴏᴠᴇᴅ ʀᴇǫᴜᴇsᴛs:** {approved_count}\n"
     )
-    
-    # Add download stats if aria2 is available
-    if aria2:
-        try:
-            downloads = aria2.get_downloads()
-            active_downloads = len([d for d in downloads if d.is_active])
-            waiting_downloads = len([d for d in downloads if d.is_waiting])
-            completed_downloads = len([d for d in downloads if d.is_complete])
-            
-            stats_text += (
-                f"\n📥 **ᴅᴏᴡɴʟᴏᴀᴅ sᴛᴀᴛs:**\n"
-                f"⏳ **ᴀᴄᴛɪᴠᴇ:** `{active_downloads}`\n"
-                f"⌛ **ᴡᴀɪᴛɪɴɢ:** `{waiting_downloads}`\n"
-                f"✅ **ᴄᴏᴍᴘʟᴇᴛᴇᴅ:** `{completed_downloads}`\n"
-            )
-        except Exception as e:
-            logger.error(f"Error getting download stats: {e}")
     
     await message.reply_text(stats_text)
 
-@app.on_message(filters.command("broadcast"))
+@app.on_message(filters.command("broadcast") & filters.private)
 async def broadcast_command(client: Client, message: Message):
-    """Broadcast a message to all users who requested videos"""
-    if not await is_admin(message.from_user.id):
+    """Send a broadcast message to all users who have made requests"""
+    if not message.from_user or not await is_admin(message.from_user.id):
         await message.reply_text("⚠️ You are not authorized to use this command.")
         return
     
@@ -819,159 +932,249 @@ async def broadcast_command(client: Client, message: Message):
     
     broadcast_message = command_parts[1]
     
-    # Collect unique user IDs from pending requests
-    user_ids = set()
-    for request_id, request_data in pending_requests.items():
-        user_ids.add(request_data['user_id'])
+    # Get unique user IDs from pending requests
+    user_ids = set(request['user_id'] for request in pending_requests.values())
     
     if not user_ids:
-        await message.reply_text("⚠️ No users found for broadcasting.")
+        await message.reply_text("⚠️ No users found to broadcast to.")
         return
     
-    sent_count = 0
-    failed_count = 0
+    status_message = await message.reply_text(f"🔄 Broadcasting message to {len(user_ids)} users...")
     
-    # Send status message
-    status_msg = await message.reply_text(f"🔄 Broadcasting message to {len(user_ids)} users...")
+    success_count = 0
+    fail_count = 0
     
-    # Send message to each user
     for user_id in user_ids:
         try:
             await client.send_message(
                 chat_id=user_id,
-                text=f"📢 **ʙʀᴏᴀᴅᴄᴀsᴛ ᴍᴇssᴀɢᴇ**\n\n{broadcast_message}"
+                text=f"📢 **ʙʀᴏᴀᴅᴄᴀsᴛ ᴍᴇssᴀɢᴇ ғʀᴏᴍ ᴀᴅᴍɪɴ**\n\n{broadcast_message}"
             )
-            sent_count += 1
-            
-            # Update status every 5 users
-            if sent_count % 5 == 0:
-                await status_msg.edit_text(f"🔄 Broadcasting: {sent_count}/{len(user_ids)} completed...")
-            
-            # Sleep to avoid flood limits
-            await asyncio.sleep(0.5)
+            success_count += 1
         except Exception as e:
-            logger.error(f"Failed to send broadcast to {user_id}: {e}")
-            failed_count += 1
+            logger.error(f"Failed to send broadcast to user {user_id}: {e}")
+            fail_count += 1
+        
+        # Add a small delay to avoid flood limits
+        await asyncio.sleep(0.1)
     
-    await status_msg.edit_text(f"✅ Broadcast completed!\n\n"
-                               f"📨 Sent: {sent_count}\n"
-                               f"❌ Failed: {failed_count}")
+    await status_message.edit_text(
+        f"✅ **ʙʀᴏᴀᴅᴄᴀsᴛ ᴄᴏᴍᴘʟᴇᴛᴇ**\n\n"
+        f"📤 **sᴇɴᴛ ᴛᴏ:** {success_count} users\n"
+        f"❌ **ғᴀɪʟᴇᴅ:** {fail_count} users"
+    )
+    # Create a simple web server to keep the bot alive on platforms like Heroku
+app_flask = Flask(__name__)
 
-# Flask web server for keeping the bot alive
-app_web = Flask(__name__)
-
-@app_web.route('/')
+@app_flask.route('/')
 def home():
-    return "TeraBox Downloader Bot is Running!"
+    return "TeraBox Downloader Bot is running!"
 
 def run_flask():
-    app_web.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+    port = int(os.environ.get("PORT", 8080))
+    app_flask.run(host='0.0.0.0', port=port)
 
-# Handle additional callback queries for approval/rejection directly from channel
-@app.on_callback_query(filters.regex(r'^(approve|reject)_'))
-async def handle_admin_action_callback(client, callback_query):
-    user_id = callback_query.from_user.id
+async def start_bot():
+    """Start the bot and initialize required resources"""
+    # Connect to the bot and user accounts
+    await app.start()
     
-    # Check if user is admin
-    if not await is_admin(user_id):
-        await callback_query.answer("⚠️ You are not authorized to perform this action.", show_alert=True)
-        return
-    
-    # Extract action and request ID
-    action, request_id = callback_query.data.split('_', 1)
-    
-    if request_id not in pending_requests:
-        await callback_query.answer(f"⚠️ Request ID {request_id} not found.", show_alert=True)
-        return
-    
-    request_data = pending_requests[request_id]
-    requester_id = request_data['user_id']
-    
-    if action == "approve":
-        # Handle approval
-        try:
-            # Update request status
-            pending_requests[request_id]['status'] = 'approved'
-            
-            # Notify user
-            await client.send_message(
-                chat_id=requester_id,
-                text=f"✅ **ʏᴏᴜʀ ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛ ʜᴀs ʙᴇᴇɴ ᴀᴘᴘʀᴏᴠᴇᴅ!**\n\n"
-                     f"🆔 **ʀᴇǫᴜᴇsᴛ ɪᴅ:** `{request_id}`\n"
-                     f"📝 **ᴅᴇsᴄʀɪᴘᴛɪᴏɴ:** {request_data['description']}\n\n"
-                     f"⏳ ᴡᴇ ᴡɪʟʟ ᴘʀᴏᴄᴇss ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ sᴏᴏɴ ᴀɴᴅ ɢᴇᴛ ʙᴀᴄᴋ ᴛᴏ ʏᴏᴜ."
-            )
-            
-            # Update original message
-            approve_button = InlineKeyboardButton("✅ ᴀᴘᴘʀᴏᴠᴇᴅ", callback_data=f"approved_{request_id}")
-            view_button = InlineKeyboardButton("👁️ ᴠɪᴇᴡ", callback_data=f"view_{request_id}")
-            
-            new_markup = InlineKeyboardMarkup([[approve_button, view_button]])
-            await callback_query.edit_message_reply_markup(new_markup)
-            
-            await callback_query.answer("✅ Request approved and user notified", show_alert=True)
-        except Exception as e:
-            logger.error(f"Error in approval process: {e}")
-            await callback_query.answer(f"❌ Error: {str(e)[:200]}", show_alert=True)
-    
-    elif action == "reject":
-        # Open dialog for rejection reason
-        await callback_query.answer("Please use /reject command with reason to reject this request.", show_alert=True)
-
-@app.on_message(filters.command("help"))
-async def help_command(client: Client, message: Message):
-    help_text = (
-        "**📚 ʜᴇʟᴘ ɢᴜɪᴅᴇ**\n\n"
-        "• Send any **TeraBox link** to download the file\n"
-        "• Use the **Request Video** button to request videos\n"
-        "• Join our channel for updates and new content\n\n"
-        "**📝 ʜᴏᴡ ᴛᴏ ʀᴇǫᴜᴇsᴛ ᴀ ᴠɪᴅᴇᴏ:**\n"
-        "1. Click on 'Request Video' button\n"
-        "2. Send a screenshot of the video\n"
-        "3. Provide name/description of the video\n"
-        "4. Wait for admin approval\n\n"
-        "**💡 sᴜᴘᴘᴏʀᴛᴇᴅ ᴛᴇʀᴀʙᴏx ᴅᴏᴍᴀɪɴs:**\n"
-        "terabox.com, nephobox.com, 4funbox.com, and more..."
-    )
-    
-    # Create buttons
-    join_button = InlineKeyboardButton("ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ ❤️", url="https://t.me/dailydiskwala")
-    request_button = InlineKeyboardButton("ʀᴇǫᴜᴇsᴛ ᴠɪᴅᴇᴏ 🎬", callback_data="request_video")
-    
-    reply_markup = InlineKeyboardMarkup([
-        [join_button],
-        [request_button]
-    ])
-    
-    await message.reply_text(help_text, reply_markup=reply_markup)
-
-# Main function to run the bot
-async def main():
-    # Start user client if available
-    global user
     if user:
         try:
             await user.start()
             logger.info("User client started successfully")
         except Exception as e:
             logger.error(f"Failed to start user client: {e}")
-            user = None
     
-    # Start the Flask thread for keeping the bot alive
+    # Log startup info
+    bot_info = await app.get_me()
+    logger.info(f"Bot started as @{bot_info.username}")
+    
+    # Check for DUMP_CHAT_ID validity
+    try:
+        chat = await app.get_chat(DUMP_CHAT_ID)
+        logger.info(f"Dump chat configured: {chat.title}")
+    except Exception as e:
+        logger.error(f"Invalid DUMP_CHAT_ID: {e}")
+    
+    # Check for aria2c
+    if aria2:
+        try:
+            version = aria2.client.get_version()
+            logger.info(f"Aria2 connected: {version['version']}")
+        except Exception as e:
+            logger.error(f"Aria2 connection error: {e}")
+    else:
+        logger.warning("Aria2 is not available. Downloads may not work properly.")
+    
+    # Wait for signal to stop
+    await asyncio.Event().wait()
+
+async def stop_bot():
+    """Stop the bot and clean up resources"""
+    if user:
+        await user.stop()
+    await app.stop()
+
+@app.on_message(filters.command("help"))
+async def help_command(client: Client, message: Message):
+    """Display help information"""
+    help_text = (
+        "📖 **ʜᴇʟᴘ & ᴄᴏᴍᴍᴀɴᴅs**\n\n"
+        "• Send any TeraBox link to download\n"
+        "• Use `/start` to see the welcome message\n"
+        "• Click 'Request Video' to request new content\n"
+        "• Use `/help` to see this message\n\n"
+        "📝 **ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛs**\n\n"
+        "1. Click 'Request Video' button\n"
+        "2. Send a screenshot of the video\n"
+        "3. Provide a description\n"
+        "4. Wait for admin approval\n\n"
+        "🔗 **sᴜᴘᴘᴏʀᴛᴇᴅ ᴛᴇʀᴀʙᴏx ᴅᴏᴍᴀɪɴs**\n\n"
+        "• terabox.com, nephobox.com, 4funbox.com\n"
+        "• mirrobox.com, teraboxapp.com, etc."
+    )
+    
+    await message.reply_text(help_text)
+
+@app.on_message(filters.command("restart") & filters.private)
+async def restart_command(client: Client, message: Message):
+    """Restart the bot (admin only)"""
+    if not message.from_user or not await is_admin(message.from_user.id):
+        await message.reply_text("⚠️ You are not authorized to use this command.")
+        return
+    
+    restart_message = await message.reply_text("🔄 Restarting bot...")
+    
+    try:
+        # Ensure both clients are stopped properly
+        if user:
+            await user.stop()
+        await app.stop()
+        
+        # Restart using the command set by the system
+        if os.environ.get("RESTART_CMD"):
+            os.system(os.environ.get("RESTART_CMD"))
+        else:
+            # Default restart behavior
+            os.execl(sys.executable, sys.executable, *sys.argv)
+    except Exception as e:
+        logger.error(f"Failed to restart bot: {e}")
+        await restart_message.edit_text(f"❌ Failed to restart: {str(e)[:100]}...")
+
+@app.on_message(filters.command("clean") & filters.private)
+async def clean_command(client: Client, message: Message):
+    """Clean temporary files (admin only)"""
+    if not message.from_user or not await is_admin(message.from_user.id):
+        await message.reply_text("⚠️ You are not authorized to use this command.")
+        return
+    
+    clean_message = await message.reply_text("🔍 Checking for temporary files...")
+    
+    try:
+        # Clean up /tmp directory
+        count = 0
+        size_freed = 0
+        for filename in os.listdir('/tmp'):
+            if not filename.startswith('.'):  # Skip hidden files
+                try:
+                    file_path = os.path.join('/tmp', filename)
+                    if os.path.isfile(file_path):
+                        file_size = os.path.getsize(file_path)
+                        os.remove(file_path)
+                        count += 1
+                        size_freed += file_size
+                except Exception as e:
+                    logger.error(f"Failed to remove file {filename}: {e}")
+        
+        size_freed_str = format_size(size_freed)
+        await clean_message.edit_text(f"✅ Cleanup complete!\n\n🗑️ Removed {count} files\n💾 Freed {size_freed_str} of space")
+    except Exception as e:
+        logger.error(f"Clean operation failed: {e}")
+        await clean_message.edit_text(f"❌ Cleanup failed: {str(e)[:100]}...")
+
+@app.on_message(filters.command("maintenance") & filters.private)
+async def maintenance_command(client: Client, message: Message):
+    """Toggle maintenance mode (admin only)"""
+    if not message.from_user or not await is_admin(message.from_user.id):
+        await message.reply_text("⚠️ You are not authorized to use this command.")
+        return
+    
+    global MAINTENANCE_MODE
+    command_parts = message.text.split(' ', 1)
+    
+    if len(command_parts) > 1 and command_parts[1].lower() == 'off':
+        MAINTENANCE_MODE = False
+        await message.reply_text("✅ Maintenance mode disabled. Bot is now available to all users.")
+    else:
+        MAINTENANCE_MODE = True
+        maintenance_message = "🛠️ Bot is currently under maintenance. Please try again later."
+        await message.reply_text(f"✅ Maintenance mode enabled with message:\n\n{maintenance_message}")
+
+@app.on_message(filters.command("ping"))
+async def ping_command(client: Client, message: Message):
+    """Check bot's response time"""
+    start_time = time.time()
+    ping_message = await message.reply_text("🏓 Pinging...")
+    
+    # Check aria2 status
+    aria2_status = "✅ Connected" if aria2 else "❌ Not connected"
+    
+    # Calculate response time
+    end_time = time.time()
+    response_time = round((end_time - start_time) * 1000, 2)
+    
+    await ping_message.edit_text(
+        f"🏓 **Pong!**\n\n"
+        f"⏱️ **Response time:** {response_time} ms\n"
+        f"📡 **Aria2:** {aria2_status}\n"
+        f"🤖 **Bot status:** Online"
+    )
+
+# Define the maintenance mode global variable
+MAINTENANCE_MODE = False
+
+# Add middleware to check maintenance mode
+@app.on_message(group=-1)
+async def maintenance_middleware(client, message):
+    """Check if bot is in maintenance mode before processing messages"""
+    # Skip for admins
+    if message.from_user and await is_admin(message.from_user.id):
+        return
+    
+    if MAINTENANCE_MODE:
+        if not message.text or not message.text.startswith('/'):
+            await message.reply_text("🛠️ Bot is currently under maintenance. Please try again later.")
+            return message.stop_propagation()
+
+# Error handling middleware
+@app.on_message(group=-2)
+async def error_handler(client, message):
+    """Global error handler for all messages"""
+    try:
+        await message.continue_propagation()
+    except Exception as e:
+        logger.error(f"Unhandled exception in message handler: {e}")
+        if message.from_user and await is_admin(message.from_user.id):
+            await message.reply_text(f"⚠️ Unexpected error: {str(e)[:100]}...")
+        else:
+            await message.reply_text("⚠️ An unexpected error occurred. Please try again later.")
+
+if __name__ == "__main__":
+    # Start the Flask server in a separate thread
     flask_thread = Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
     
-    # Start the bot
-    await app.start()
-    logger.info("Bot started successfully!")
-    
-    # Keep the bot running
-    await asyncio.sleep(float("inf"))
-
-if __name__ == "__main__":
+    # Set up signal handlers for graceful shutdown
+    loop = asyncio.get_event_loop()
     try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(main())
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Bot stopped!")
+        loop.run_until_complete(start_bot())
+    except KeyboardInterrupt:
+        logger.info("Received keyboard interrupt, stopping bot...")
+        loop.run_until_complete(stop_bot())
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
+        loop.run_until_complete(stop_bot())
+    finally:
+        loop.close()
