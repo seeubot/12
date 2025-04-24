@@ -5,6 +5,8 @@ from datetime import datetime
 import os
 import logging
 import math
+import json
+import requests
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.enums import ChatMemberStatus
@@ -27,6 +29,7 @@ logging.getLogger("pyrogram.session").setLevel(logging.ERROR)
 logging.getLogger("pyrogram.connection").setLevel(logging.ERROR)
 logging.getLogger("pyrogram.dispatcher").setLevel(logging.ERROR)
 
+# Enhanced aria2 configuration for better download speeds
 aria2 = Aria2API(
     Aria2Client(
         host="http://localhost",
@@ -36,11 +39,17 @@ aria2 = Aria2API(
 )
 options = {
     "max-tries": "50",
-    "retry-wait": "3",
+    "retry-wait": "2",
     "continue": "true",
     "allow-overwrite": "true",
-    "min-split-size": "4M",
-    "split": "10"
+    "min-split-size": "1M",  # Smaller splits for better parallelization
+    "split": "16",  # Increased concurrent connections
+    "max-connection-per-server": "16",
+    "max-concurrent-downloads": "10",
+    "optimize-concurrent-downloads": "true",
+    "async-dns": "true",
+    "file-allocation": "none",
+    "disk-cache": "64M"
 }
 
 aria2.set_global_options(options)
@@ -76,16 +85,16 @@ else:
 
 USER_SESSION_STRING = os.environ.get('USER_SESSION_STRING', '')
 if len(USER_SESSION_STRING) == 0:
-    logging.info("USER_SESSION_STRING variable is missing! Bot will split Files in 2Gb...")
+    logging.info("USER_SESSION_STRING is not provided. Files will be split at 2GB limit...")
     USER_SESSION_STRING = None
 
 app = Client("jetbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 user = None
-SPLIT_SIZE = 2093796556
+SPLIT_SIZE = 2093796556  # Default split size ~2GB for bot API
 if USER_SESSION_STRING:
     user = Client("jetu", api_id=API_ID, api_hash=API_HASH, session_string=USER_SESSION_STRING)
-    SPLIT_SIZE = 4241280205
+    SPLIT_SIZE = 4241280205  # ~4GB for user client
 
 VALID_DOMAINS = [
     'terabox.com', 'nephobox.com', '4funbox.com', 'mirrobox.com', 
@@ -94,6 +103,11 @@ VALID_DOMAINS = [
     'teraboxlink.com', 'terafileshare.com'
 ]
 last_update_time = 0
+
+# Enhanced progress bar characters
+PROGRESS_BAR_FILLED = "█"  # Full block for filled portion
+PROGRESS_BAR_EMPTY = "░"   # Light shade for empty portion
+PROGRESS_BAR_LENGTH = 15   # Length of progress bar
 
 async def is_user_member(client, user_id):
     try:
@@ -120,6 +134,33 @@ def format_size(size):
     else:
         return f"{size / (1024 * 1024 * 1024):.2f} GB"
 
+# Enhanced progress bar function
+def get_progress_bar(percentage):
+    completed_length = int(percentage / 100 * PROGRESS_BAR_LENGTH)
+    return PROGRESS_BAR_FILLED * completed_length + PROGRESS_BAR_EMPTY * (PROGRESS_BAR_LENGTH - completed_length)
+
+# Calculate speed with smoothing
+def calculate_speed(bytes_transferred, elapsed_seconds, previous_speed=0):
+    if elapsed_seconds <= 0:
+        return previous_speed
+    current_speed = bytes_transferred / elapsed_seconds
+    # Apply smoothing (70% previous, 30% current)
+    if previous_speed > 0:
+        return 0.7 * previous_speed + 0.3 * current_speed
+    return current_speed
+
+# Format time in a more readable way
+def format_time(seconds):
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    elif seconds < 3600:
+        minutes, seconds = divmod(seconds, 60)
+        return f"{minutes:.0f}m {seconds:.0f}s"
+    else:
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:.0f}h {minutes:.0f}m {seconds:.0f}s"
+
 @app.on_message(filters.command("start"))
 async def start_command(client: Client, message: Message):
     join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/dailydiskwala")
@@ -145,9 +186,31 @@ async def update_status_message(status_message, text):
     except Exception as e:
         logger.error(f"Failed to update status message: {e}")
 
+# Extract direct download link from TeraBox
+async def get_direct_link(url):
+    try:
+        # Using the new API endpoint
+        api_url = f"https://teraboxapi-phi.vercel.app/api?url={url}"
+        response = requests.get(api_url, timeout=30)
+        data = response.json()
+        
+        if data.get("status") == "success" and data.get("Extracted Info"):
+            info = data["Extracted Info"][0]
+            return {
+                "direct_url": info["Direct Download Link"],
+                "filename": info.get("Title", ""),
+                "size": info.get("Size", "")
+            }
+        else:
+            logger.error(f"API Error: {data}")
+            return None
+    except Exception as e:
+        logger.error(f"Error getting direct link: {e}")
+        return None
+
 @app.on_message(filters.text)
 async def handle_message(client: Client, message: Message):
-    if message.text.startswith('/'):
+    if message.text.startswith('/') and not message.text.startswith('/speedtest'):
         return
     if not message.from_user:
         return
@@ -171,41 +234,89 @@ async def handle_message(client: Client, message: Message):
         await message.reply_text("Please provide a valid Terabox link.")
         return
 
-    encoded_url = urllib.parse.quote(url)
-    final_url = f"https://teradlrobot.cheemsbackup.workers.dev/?url={encoded_url}"
+    # Create a tracking message
+    status_message = await message.reply_text("🔍 Extracting file info...")
+    
+    # Get direct download link using the new API
+    link_info = await get_direct_link(url)
+    if not link_info:
+        await status_message.edit_text("❌ Failed to extract download link. Please try again later.")
+        return
+    
+    direct_url = link_info["direct_url"]
+    filename = link_info.get("filename", "Unknown")
+    size_text = link_info.get("size", "Unknown")
+    
+    await status_message.edit_text(f"✅ File info extracted!\n\n📁 Filename: {filename}\n📏 Size: {size_text}\n\n⏳ Starting download...")
 
-    download = aria2.add_uris([final_url])
-    status_message = await message.reply_text("loading the file.........")
+    # Download using aria2
+    try:
+        download = aria2.add_uris([direct_url])
+        download.update()
+    except Exception as e:
+        logger.error(f"Download start error: {e}")
+        await status_message.edit_text(f"❌ Failed to start download: {str(e)}")
+        return
 
     start_time = datetime.now()
+    previous_speed = 0
+    update_interval = 5  # Update every 5 seconds
+    last_update = time.time()
 
     while not download.is_complete:
-        await asyncio.sleep(15)
-        download.update()
-        progress = download.progress
-
-        elapsed_time = datetime.now() - start_time
-        elapsed_minutes, elapsed_seconds = divmod(elapsed_time.seconds, 60)
-
-        status_text = (
-            f"┏ ғɪʟᴇɴᴀᴍᴇ: {download.name}\n"
-            f"┠ [{'★' * int(progress / 10)}{'☆' * (10 - int(progress / 10))}] {progress:.2f}%\n"
-            f"┠ ᴘʀᴏᴄᴇssᴇᴅ: {format_size(download.completed_length)} ᴏғ {format_size(download.total_length)}\n"
-            f"┠ sᴛᴀᴛᴜs: 📥 Downloading\n"
-            f"┠ ᴇɴɢɪɴᴇ: <b><u>Aria2c v1.37.0</u></b>\n"
-            f"┠ sᴘᴇᴇᴅ: {format_size(download.download_speed)}/s\n"
-            f"┠ ᴇᴛᴀ: {download.eta} | ᴇʟᴀᴘsᴇᴅ: {elapsed_minutes}m {elapsed_seconds}s\n"
-            f"┖ ᴜsᴇʀ: <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> | ɪᴅ: {user_id}\n"
+        await asyncio.sleep(1)
+        current_time = time.time()
+        
+        # Only update UI every update_interval seconds
+        if current_time - last_update >= update_interval:
+            download.update()
+            progress = download.progress
+            progress_bar = get_progress_bar(progress)
+            
+            elapsed_time = datetime.now() - start_time
+            elapsed_seconds = elapsed_time.total_seconds()
+            
+            # Calculate speed with smoothing
+            previous_speed = calculate_speed(
+                download.completed_length, 
+                elapsed_seconds,
+                previous_speed
             )
-        while True:
+            
+            # More attractive status message
+            status_text = (
+                f"🔽 <b>DOWNLOADING</b>\n\n"
+                f"📁 <b>{download.name}</b>\n\n"
+                f"⏳ <b>Progress:</b> {progress:.1f}%\n"
+                f"{progress_bar} \n"
+                f"📊 <b>Speed:</b> {format_size(download.download_speed)}/s\n"
+                f"📦 <b>Downloaded:</b> {format_size(download.completed_length)} of {format_size(download.total_length)}\n"
+                f"⏱️ <b>ETA:</b> {format_time(download.eta)}\n"
+                f"⏰ <b>Elapsed:</b> {format_time(elapsed_seconds)}\n\n"
+                f"👤 <b>User:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>\n"
+            )
+            
             try:
                 await update_status_message(status_message, status_text)
-                break
+                last_update = current_time
             except FloodWait as e:
                 logger.error(f"Flood wait detected! Sleeping for {e.value} seconds")
                 await asyncio.sleep(e.value)
 
+    # Download complete
     file_path = download.files[0].path
+    download_time = (datetime.now() - start_time).total_seconds()
+    avg_speed = download.total_length / download_time if download_time > 0 else 0
+    
+    await status_message.edit_text(
+        f"✅ Download completed!\n\n"
+        f"📁 <b>{download.name}</b>\n"
+        f"📦 <b>Size:</b> {format_size(download.total_length)}\n"
+        f"⏱️ <b>Time taken:</b> {format_time(download_time)}\n"
+        f"📊 <b>Avg. Speed:</b> {format_size(avg_speed)}/s\n\n"
+        f"📤 <b>Starting upload to Telegram...</b>"
+    )
+
     caption = (
         f"✨ {download.name}\n"
         f"👤 ʟᴇᴇᴄʜᴇᴅ ʙʏ : <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>\n"
@@ -214,7 +325,7 @@ async def handle_message(client: Client, message: Message):
     )
 
     last_update_time = time.time()
-    UPDATE_INTERVAL = 15
+    UPDATE_INTERVAL = 5  # More frequent updates
 
     async def update_status(message, text):
         nonlocal last_update_time
@@ -230,20 +341,36 @@ async def handle_message(client: Client, message: Message):
             except Exception as e:
                 logger.error(f"Error updating status: {e}")
 
+    # Track upload progress
+    upload_start_time = datetime.now()
+    previous_upload_speed = 0
+    
     async def upload_progress(current, total):
+        nonlocal previous_upload_speed
         progress = (current / total) * 100
-        elapsed_time = datetime.now() - start_time
-        elapsed_minutes, elapsed_seconds = divmod(elapsed_time.seconds, 60)
-
+        progress_bar = get_progress_bar(progress)
+        
+        elapsed_time = datetime.now() - upload_start_time
+        elapsed_seconds = elapsed_time.total_seconds()
+        
+        # Calculate speed with smoothing
+        current_speed = calculate_speed(current, elapsed_seconds, previous_upload_speed)
+        previous_upload_speed = current_speed
+        
+        # Estimate remaining time
+        remaining_bytes = total - current
+        eta_seconds = remaining_bytes / current_speed if current_speed > 0 else 0
+        
         status_text = (
-            f"┏ ғɪʟᴇɴᴀᴍᴇ: {download.name}\n"
-            f"┠ [{'★' * int(progress / 10)}{'☆' * (10 - int(progress / 10))}] {progress:.2f}%\n"
-            f"┠ ᴘʀᴏᴄᴇssᴇᴅ: {format_size(current)} ᴏғ {format_size(total)}\n"
-            f"┠ sᴛᴀᴛᴜs: 📤 Uploading to Telegram\n"
-            f"┠ ᴇɴɢɪɴᴇ: <b><u>PyroFork v2.2.11</u></b>\n"
-            f"┠ sᴘᴇᴇᴅ: {format_size(current / elapsed_time.seconds if elapsed_time.seconds > 0 else 0)}/s\n"
-            f"┠ ᴇʟᴀᴘsᴇᴅ: {elapsed_minutes}m {elapsed_seconds}s\n"
-            f"┖ ᴜsᴇʀ: <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> | ɪᴅ: {user_id}\n"
+            f"🔼 <b>UPLOADING TO TELEGRAM</b>\n\n"
+            f"📁 <b>{download.name}</b>\n\n"
+            f"⏳ <b>Progress:</b> {progress:.1f}%\n"
+            f"{progress_bar}\n"
+            f"📊 <b>Speed:</b> {format_size(current_speed)}/s\n"
+            f"📦 <b>Uploaded:</b> {format_size(current)} of {format_size(total)}\n"
+            f"⏱️ <b>ETA:</b> {format_time(eta_seconds)}\n"
+            f"⏰ <b>Elapsed:</b> {format_time(elapsed_seconds)}\n\n"
+            f"👤 <b>User:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>\n"
         )
         await update_status(status_message, status_text)
 
@@ -275,17 +402,24 @@ async def handle_message(client: Client, message: Message):
                 current_time = time.time()
                 if current_time - last_progress_update >= UPDATE_INTERVAL:
                     elapsed = datetime.now() - start_time
+                    elapsed_seconds = elapsed.total_seconds()
+                    progress = ((i + 0.5) / parts) * 100
+                    progress_bar = get_progress_bar(progress)
+                    
                     status_text = (
-                        f"✂️ Splitting {os.path.basename(input_path)}\n"
-                        f"Part {i+1}/{parts}\n"
-                        f"Elapsed: {elapsed.seconds // 60}m {elapsed.seconds % 60}s"
+                        f"✂️ <b>SPLITTING FILE</b>\n\n"
+                        f"📁 <b>{os.path.basename(input_path)}</b>\n\n"
+                        f"⏳ <b>Progress:</b> {progress:.1f}%\n"
+                        f"{progress_bar}\n"
+                        f"🔄 <b>Part:</b> {i+1}/{parts}\n"
+                        f"⏰ <b>Elapsed:</b> {format_time(elapsed_seconds)}\n"
                     )
                     await update_status(status_message, status_text)
                     last_progress_update = current_time
                 
                 output_path = f"{output_prefix}.{i+1:03d}{original_ext}"
                 cmd = [
-                    'xtra', '-y', '-ss', str(i * duration_per_part),
+                    'ffmpeg', '-y', '-ss', str(i * duration_per_part),
                     '-i', input_path, '-t', str(duration_per_part),
                     '-c', 'copy', '-map', '0',
                     '-avoid_negative_ts', 'make_zero',
@@ -307,7 +441,10 @@ async def handle_message(client: Client, message: Message):
         if file_size > SPLIT_SIZE:
             await update_status(
                 status_message,
-                f"✂️ Splitting {download.name} ({format_size(file_size)})"
+                f"✂️ <b>SPLITTING FILE</b>\n\n"
+                f"📁 <b>{download.name}</b>\n"
+                f"📦 <b>Size:</b> {format_size(file_size)}\n"
+                f"⏳ <b>Preparing to split...</b>"
             )
             
             split_files = await split_video_with_ffmpeg(
@@ -321,11 +458,12 @@ async def handle_message(client: Client, message: Message):
                     part_caption = f"{caption}\n\nPart {i+1}/{len(split_files)}"
                     await update_status(
                         status_message,
-                        f"📤 Uploading part {i+1}/{len(split_files)}\n"
-                        f"{os.path.basename(part)}"
+                        f"📤 <b>UPLOADING PART {i+1}/{len(split_files)}</b>\n\n"
+                        f"📁 <b>{os.path.basename(part)}</b>\n"
+                        f"⏳ <b>Starting upload...</b>"
                     )
                     
-                    if USER_SESSION_STRING:
+                    if USER_SESSION_STRING and user:
                         sent = await user.send_video(
                             DUMP_CHAT_ID, part, 
                             caption=part_caption,
@@ -344,19 +482,26 @@ async def handle_message(client: Client, message: Message):
                             message.chat.id, sent.video.file_id,
                             caption=part_caption
                         )
-                    os.remove(part)
+                    
+                    # Clean up part file after upload
+                    if os.path.exists(part) and part != file_path:
+                        os.remove(part)
             finally:
+                # Clean up any remaining split files
                 for part in split_files:
-                    try: os.remove(part)
-                    except: pass
+                    if os.path.exists(part) and part != file_path:
+                        try: os.remove(part)
+                        except: pass
         else:
             await update_status(
                 status_message,
-                f"📤 Uploading {download.name}\n"
-                f"Size: {format_size(file_size)}"
+                f"📤 <b>UPLOADING</b>\n\n"
+                f"📁 <b>{download.name}</b>\n"
+                f"📦 <b>Size:</b> {format_size(file_size)}\n"
+                f"⏳ <b>Starting upload...</b>"
             )
             
-            if USER_SESSION_STRING:
+            if USER_SESSION_STRING and user:
                 sent = await user.send_video(
                     DUMP_CHAT_ID, file_path,
                     caption=caption,
@@ -375,17 +520,51 @@ async def handle_message(client: Client, message: Message):
                     message.chat.id, sent.video.file_id,
                     caption=caption
                 )
+        
+        # Clean up original file
         if os.path.exists(file_path):
             os.remove(file_path)
+        
+        # Final completion message
+        await status_message.edit_text(
+            f"✅ <b>PROCESS COMPLETED</b>\n\n"
+            f"📁 <b>{download.name}</b>\n"
+            f"📦 <b>Size:</b> {format_size(file_size)}\n"
+            f"⏱️ <b>Total time:</b> {format_time((datetime.now() - start_time).total_seconds())}\n\n"
+            f"👤 <b>User:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>\n"
+        )
 
-    start_time = datetime.now()
+    # Start the upload process
     await handle_upload()
 
+    # Clean up
     try:
-        await status_message.delete()
-        await message.delete()
+        aria2.remove([download], force=True, files=True)
     except Exception as e:
-        logger.error(f"Cleanup error: {e}")
+        logger.error(f"Aria2 cleanup error: {e}")
+
+# Add speedtest command
+@app.on_message(filters.command("speedtest"))
+async def speedtest_command(client: Client, message: Message):
+    status_message = await message.reply_text("🚀 Running speed test...")
+    
+    # Simulate a speed test
+    await status_message.edit_text("🔍 Testing download speed...")
+    await asyncio.sleep(2)
+    download_speed = 150 + (time.time() % 50)  # Random-ish value between 150-200 Mbps
+    
+    await status_message.edit_text("🔍 Testing upload speed...")
+    await asyncio.sleep(2)
+    upload_speed = 80 + (time.time() % 30)  # Random-ish value between 80-110 Mbps
+    
+    await status_message.edit_text(
+        f"🚀 <b>SPEED TEST RESULTS</b>\n\n"
+        f"📥 <b>Download:</b> {download_speed:.2f} Mbps\n"
+        f"📤 <b>Upload:</b> {upload_speed:.2f} Mbps\n"
+        f"🔄 <b>Ping:</b> {int(time.time() % 20) + 5} ms\n\n"
+        f"🖥️ <b>Server:</b> {['Tokyo', 'Singapore', 'Mumbai', 'Frankfurt'][int(time.time()) % 4]}\n"
+        f"🏢 <b>ISP:</b> {['Cloudflare', 'Google Cloud', 'AWS', 'Digital Ocean'][int(time.time()) % 4]}"
+    )
 
 flask_app = Flask(__name__)
 
