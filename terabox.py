@@ -704,7 +704,7 @@ def home():
     return render_template('index.html', title="Terabox Downloader Bot")
 
 def run_web_server():
-    app_flask.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+    app_flask.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8000)))
 
 # Create a simple index.html template in the templates folder
 os.makedirs('templates', exist_ok=True)
