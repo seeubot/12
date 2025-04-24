@@ -149,8 +149,13 @@ def calculate_speed(bytes_transferred, elapsed_seconds, previous_speed=0):
         return 0.7 * previous_speed + 0.3 * current_speed
     return current_speed
 
-# Format time in a more readable way
+# Format time in a more readable way - FIXED VERSION
 def format_time(seconds):
+    # Check if seconds is a timedelta object and convert it to seconds
+    if isinstance(seconds, datetime.timedelta):
+        seconds = seconds.total_seconds()
+    
+    # Now handle the seconds as a numeric value
     if seconds < 60:
         return f"{seconds:.0f}s"
     elif seconds < 3600:
