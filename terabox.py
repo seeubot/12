@@ -9,6 +9,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.enums import ChatMemberStatus
 from pyrogram.errors import FloodWait
+from pyrogram import idle
 import time
 import urllib.parse
 from urllib.parse import urlparse
