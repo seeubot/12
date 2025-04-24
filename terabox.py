@@ -583,7 +583,10 @@ async def process_url(client, message, url):
         logger.error(f"Error processing URL: {e}")
         try:
             await status_msg.edit_text(f"❌ **ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴡʜɪʟᴇ ᴘʀᴏᴄᴇssɪɴɢ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ.**")
-            @app.on_message(filters.text & filters.private & ~filters.command)
+        except:
+            pass  # In case the status message can't be edited
+
+@app.on_message(filters.text & filters.private & ~filters.command)
 async def handle_links(client: Client, message: Message):
     """Handle incoming messages with links"""
     text = message.text.strip()
