@@ -570,322 +570,197 @@ async def process_url(client, message, url):
             await status_msg.edit_text("❌ **ᴜᴘʟᴏᴀᴅ ғᴀɪʟᴇᴅ.** ᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ ʟᴀᴛᴇʀ.")
             return
             
-        # Clean up after successful upload
+        # Clean up downloaded file
         try:
             os.remove(download_path)
-            await status_msg.delete()
         except Exception as e:
-            logger.error(f"Cleanup error: {e}")
+            logger.warning(f"Error removing file {download_path}: {e}")
             
-    except Exception as e:
-        logger.error(f"Process URL error: {e}")
-        await message.reply_text(f"❌ **ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ:** `{str(e)}`")
+        # Final success message
+        await status_msg.edit_text("✅ **ᴘʀᴏᴄᴇss ᴄᴏᴍᴘʟᴇᴛᴇ!** ʏᴏᴜʀ ғɪʟᴇ ʜᴀs ʙᴇᴇɴ sᴇɴᴛ ᴀʙᴏᴠᴇ.")
         
+    except Exception as e:
+        logger.error(f"Error processing URL: {e}")
+        try:
+            await status_msg.edit_text(f"❌ **ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ ᴡʜɪʟᴇ ᴘʀᴏᴄᴇssɪɴɢ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ.**")
+        except:
+            pass
+
 @app.on_message(filters.text & filters.private & ~filters.command)
-async def handle_message(client, message):
-    """Handle incoming messages with URLs"""
-    text = message.text.strip()
+async def handle_url(client, message):
+    """Handle URLs sent to the bot"""
+    text = message.text
     
-    # Check if it's a valid Terabox URL
+    # Check if text contains a valid Terabox URL
     if is_valid_url(text):
         await process_url(client, message, text)
     else:
-        await message.reply_text("❌ **ɪɴᴠᴀʟɪᴅ ᴛᴇʀᴀʙᴏx ʟɪɴᴋ!** ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴀ ᴠᴀʟɪᴅ ʟɪɴᴋ.")
-    # Web UI for status (optional)
-app_flask = Flask(__name__)
+        await message.reply_text("❌ **ɪɴᴠᴀʟɪᴅ ᴜʀʟ.** ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴀ ᴠᴀʟɪᴅ ᴛᴇʀᴀʙᴏx ʟɪɴᴋ.")
 
-@app_flask.route('/')
-def index():
-    return render_template('index.html', status="Bot is running")
+@app.on_message(filters.command("request"))
+async def handle_request_command(client, message):
+    """Handle video request command"""
+    await client.send_message(
+        chat_id=message.chat.id,
+        text="📽️ **Send a screenshot or image of the video you want to request.**\n\n"
+        "Please include the following details in the caption:\n"
+        "1. Video name/title\n"
+        "2. Source (if any)\n"
+        "3. Any additional information\n\n"
+        "Example: `Avengers Endgame (2019) | HD Quality | Marvel`"
+    )
 
-def run_flask():
-    app_flask.run(host='0.0.0.0', port=8080)
+@app.on_message(filters.photo & filters.private)
+async def handle_request_photo(client, message):
+    """Handle photo sent for video request"""
+    user_id = message.from_user.id
+    user_mention = message.from_user.mention
+    
+    # Check if user is subscribed
+    is_member = await is_user_member(client, user_id)
+    if not is_member:
+        join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/jetmirror")
+        reply_markup = InlineKeyboardMarkup([[join_button]])
+        await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
+        return
+    
+    # Get caption or ask for details
+    caption = message.caption
+    if not caption:
+        await message.reply_text("❌ **ᴘʟᴇᴀsᴇ ᴀᴅᴅ ᴀ ᴄᴀᴘᴛɪᴏɴ ᴡɪᴛʜ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ᴅᴇᴛᴀɪʟs.**")
+        return
+    
+    # Forward the request to the request channel
+    try:
+        request_text = f"📱 **ɴᴇᴡ ʀᴇǫᴜᴇsᴛ ғʀᴏᴍ** {user_mention}\n\n"
+        request_text += f"🎬 **ʀᴇǫᴜᴇsᴛ ᴅᴇᴛᴀɪʟs:**\n{caption}"
+        
+        # Forward photo with modified caption
+        await client.copy_message(
+            chat_id=REQUEST_CHANNEL_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.id,
+            caption=request_text
+        )
+        
+        # Send confirmation
+        await message.reply_text(
+            "✅ **ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ʜᴀs ʙᴇᴇɴ sᴜʙᴍɪᴛᴛᴇᴅ!**\n\n"
+            "ᴡᴇ'ʟʟ ᴘʀᴏᴄᴇss ɪᴛ ᴀs sᴏᴏɴ ᴀs ᴘᴏssɪʙʟᴇ. ᴘʟᴇᴀsᴇ ᴄʜᴇᴄᴋ ᴏᴜʀ ᴄʜᴀɴɴᴇʟ @jetmirror."
+        )
+    except Exception as e:
+        logger.error(f"Error handling request: {e}")
+        await message.reply_text("❌ **ᴇʀʀᴏʀ sᴜʙᴍɪᴛᴛɪɴɢ ʀᴇǫᴜᴇsᴛ.** ᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ ʟᴀᴛᴇʀ.")
 
 @app.on_message(filters.command("help"))
 async def help_command(client, message):
+    """Show help information"""
     help_text = (
-        "🔰 **Available Commands** 🔰\n\n"
-        "• `/start` - Start the bot\n"
-        "• `/help` - Show this help message\n"
-        "• `/request` - Request a video\n"
-        "• `/myrequests` - Check your request status\n"
-        "• `/stats` - Show bot statistics (Admin only)\n\n"
-        "📌 **How to use:**\n"
-        "Simply send a Terabox link, and I'll download and send the file to you.\n\n"
-        "For video requests, use the `/request` command or the button in the start message."
+        "📚 **ᴀᴠᴀɪʟᴀʙʟᴇ ᴄᴏᴍᴍᴀɴᴅs:**\n\n"
+        "/start - sᴛᴀʀᴛ ᴛʜᴇ ʙᴏᴛ\n"
+        "/help - sʜᴏᴡ ᴛʜɪs ʜᴇʟᴘ ᴍᴇssᴀɢᴇ\n"
+        "/request - ʀᴇǫᴜᴇsᴛ ᴀ ᴠɪᴅᴇᴏ\n\n"
+        "**ʜᴏᴡ ᴛᴏ ᴜsᴇ:**\n"
+        "1. sɪᴍᴘʟʏ sᴇɴᴅ ᴀ ᴛᴇʀᴀʙᴏx ʟɪɴᴋ\n"
+        "2. ᴛʜᴇ ʙᴏᴛ ᴡɪʟʟ ᴘʀᴏᴄᴇss ᴀɴᴅ sᴇɴᴅ ʏᴏᴜ ᴛʜᴇ ғɪʟᴇ\n"
+        "3. ғᴏʀ ᴠɪᴅᴇᴏ ʀᴇǫᴜᴇsᴛs, ᴜsᴇ /request ᴏʀ ᴄʟɪᴄᴋ ᴛʜᴇ ʀᴇǫᴜᴇsᴛ ʙᴜᴛᴛᴏɴ\n\n"
+        "sᴜᴘᴘᴏʀᴛᴇᴅ ᴅᴏᴍᴀɪɴs: ᴛᴇʀᴀʙᴏx.ᴄᴏᴍ, ɴᴇᴘʜᴏʙᴏx.ᴄᴏᴍ, 4ғᴜɴʙᴏx.ᴄᴏᴍ, ᴍɪʀʀᴏʙᴏx.ᴄᴏᴍ, ᴍᴏᴍᴇʀʏʙᴏx.ᴄᴏᴍ, ᴇᴛᴄ."
     )
-    await message.reply_text(help_text)
+    
+    join_button = InlineKeyboardButton("ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ ❤️🚀", url="https://t.me/jetmirror")
+    reply_markup = InlineKeyboardMarkup([[join_button]])
+    
+    await message.reply_text(help_text, reply_markup=reply_markup)
 
 @app.on_message(filters.command("stats") & filters.user(ADMIN_IDS))
 async def stats_command(client, message):
-    """Show bot statistics for admins"""
+    """Show bot statistics (admin only)"""
     try:
-        # Get aria2 stats
-        global_stats = aria2.get_global_stat()
-        download_speed = format_size(int(global_stats['downloadSpeed']))
-        upload_speed = format_size(int(global_stats['uploadSpeed']))
-        active_downloads = global_stats['numActive']
-        waiting_downloads = global_stats['numWaiting']
-        stopped_downloads = global_stats['numStopped']
+        # Get basic stats
+        aria2_stats = aria2.get_global_stat()
+        download_speed = int(aria2_stats.download_speed)
+        active_downloads = int(aria2_stats.num_active)
         
-        # Get system stats
+        # Get memory usage
         import psutil
-        cpu_usage = psutil.cpu_percent()
-        memory = psutil.virtual_memory()
-        memory_usage = f"{memory.percent}% ({format_size(memory.used)} / {format_size(memory.total)})"
-        disk = psutil.disk_usage('/')
-        disk_usage = f"{disk.percent}% ({format_size(disk.used)} / {format_size(disk.total)})"
-        
-        # Uptime
-        import time
-        start_time = os.path.getmtime("/proc/1")
-        uptime_seconds = time.time() - start_time
-        uptime = format_time(uptime_seconds)
+        process = psutil.Process(os.getpid())
+        memory_usage = process.memory_info().rss / (1024 * 1024)  # MB
         
         stats_text = (
-            "📊 **Bot Statistics**\n\n"
-            f"⏱️ **Uptime:** `{uptime}`\n"
-            f"🔄 **Active Downloads:** `{active_downloads}`\n"
-            f"⏳ **Waiting Downloads:** `{waiting_downloads}`\n"
-            f"⏹️ **Stopped Downloads:** `{stopped_downloads}`\n"
-            f"⬇️ **Download Speed:** `{download_speed}/s`\n"
-            f"⬆️ **Upload Speed:** `{upload_speed}/s`\n\n"
-            f"💻 **System Stats:**\n"
-            f"CPU Usage: `{cpu_usage}%`\n"
-            f"Memory Usage: `{memory_usage}`\n"
-            f"Disk Usage: `{disk_usage}`"
+            "📊 **ʙᴏᴛ sᴛᴀᴛɪsᴛɪᴄs:**\n\n"
+            f"⬇️ **ᴀᴄᴛɪᴠᴇ ᴅᴏᴡɴʟᴏᴀᴅs:** `{active_downloads}`\n"
+            f"🚀 **ᴅᴏᴡɴʟᴏᴀᴅ sᴘᴇᴇᴅ:** `{format_size(download_speed)}/s`\n"
+            f"💾 **ᴍᴇᴍᴏʀʏ ᴜsᴀɢᴇ:** `{memory_usage:.2f} MB`\n"
+            f"⏱️ **ᴜᴘᴛɪᴍᴇ:** `{format_time(time.time() - start_time)}`\n"
         )
         
         await message.reply_text(stats_text)
     except Exception as e:
-        logger.error(f"Stats error: {e}")
-        await message.reply_text(f"❌ **Error fetching stats:** `{str(e)}`")
+        logger.error(f"Error getting stats: {e}")
+        await message.reply_text("❌ **ᴇʀʀᴏʀ ɢᴇᴛᴛɪɴɢ sᴛᴀᴛs.**")
 
 @app.on_message(filters.command("broadcast") & filters.user(ADMIN_IDS))
 async def broadcast_command(client, message):
-    """Broadcast message to all users who have interacted with the bot"""
-    if len(message.command) < 2:
-        await message.reply_text("❌ **Please provide a message to broadcast.**\n\nUsage: `/broadcast Your message here`")
-        return
-        
-    broadcast_text = message.text.split("/broadcast ", 1)[1]
-    
-    # Get user list - for a real implementation, you would need to store user IDs
-    # This is a simplified version using a in-memory set
-    try:
-        # Get user list from sample file (create this file with user IDs)
-        user_ids = set()
-        if os.path.exists("users.txt"):
-            with open("users.txt", "r") as f:
-                for line in f:
-                    try:
-                        user_ids.add(int(line.strip()))
-                    except:
-                        continue
-        
-        if not user_ids:
-            await message.reply_text("❌ **No users found for broadcast.**")
-            return
-            
-        # Send confirmation message
-        confirm_msg = await message.reply_text(
-            f"🔊 **About to broadcast to {len(user_ids)} users:**\n\n{broadcast_text}\n\n"
-            "Are you sure you want to continue?"
-        )
-        
-        # Add confirmation buttons
-        confirm_button = InlineKeyboardButton("✅ Confirm", callback_data="broadcast_confirm")
-        cancel_button = InlineKeyboardButton("❌ Cancel", callback_data="broadcast_cancel")
-        confirm_markup = InlineKeyboardMarkup([[confirm_button, cancel_button]])
-        
-        await confirm_msg.edit_text(
-            f"🔊 **About to broadcast to {len(user_ids)} users:**\n\n{broadcast_text}\n\n"
-            "Are you sure you want to continue?",
-            reply_markup=confirm_markup
-        )
-        
-        # Store broadcast data for callback
-        app.broadcast_data = {
-            "text": broadcast_text,
-            "users": user_ids
-        }
-        
-    except Exception as e:
-        logger.error(f"Broadcast error: {e}")
-        await message.reply_text(f"❌ **Error preparing broadcast:** `{str(e)}`")
+    """Broadcast a message to all users (admin only)"""
+    # TODO: Implement broadcast functionality
+    await message.reply_text("ᴛʜɪs ғᴇᴀᴛᴜʀᴇ ɪs ɴᴏᴛ ʏᴇᴛ ɪᴍᴘʟᴇᴍᴇɴᴛᴇᴅ.")
 
-@app.on_callback_query(filters.regex(r"^broadcast_(confirm|cancel)$"))
-async def broadcast_action(client, callback_query):
-    """Handle broadcast confirmation or cancellation"""
-    user_id = callback_query.from_user.id
-    
-    # Verify admin
-    if user_id not in ADMIN_IDS:
-        await callback_query.answer("You are not authorized to perform this action!", show_alert=True)
-        return
-        
-    action = callback_query.data.split("_")[1]
-    
-    if action == "cancel":
-        await callback_query.edit_message_text("🚫 **Broadcast cancelled.**")
-        return
-        
-    if action == "confirm":
-        # Check if broadcast data exists
-        if not hasattr(app, "broadcast_data"):
-            await callback_query.answer("Broadcast data not found. Please try again.", show_alert=True)
-            return
-            
-        broadcast_text = app.broadcast_data["text"]
-        users = app.broadcast_data["users"]
-        
-        # Update message
-        await callback_query.edit_message_text(f"🔄 **Broadcasting to {len(users)} users...**")
-        
-        # Start broadcasting
-        success = 0
-        failed = 0
-        
-        progress_msg = await callback_query.message.reply_text("📊 **Broadcast Progress:** 0%")
-        
-        for i, user_id in enumerate(users):
-            try:
-                await client.send_message(user_id, broadcast_text)
-                success += 1
-            except Exception as e:
-                logger.error(f"Failed to broadcast to {user_id}: {e}")
-                failed += 1
-                
-            # Update progress every 20 users or at the end
-            if (i + 1) % 20 == 0 or i + 1 == len(users):
-                progress = ((i + 1) / len(users)) * 100
-                await progress_msg.edit_text(
-                    f"📊 **Broadcast Progress:** {progress:.1f}%\n"
-                    f"✅ Success: {success}\n"
-                    f"❌ Failed: {failed}"
-                )
-                
-                # Sleep to avoid Telegram limits
-                await asyncio.sleep(0.5)
-                
-        # Final update
-        await callback_query.edit_message_text(
-            f"✅ **Broadcast completed!**\n\n"
-            f"📨 Total users: {len(users)}\n"
-            f"✅ Successful: {success}\n"
-            f"❌ Failed: {failed}"
-        )
-        
-        # Clear broadcast data
-        delattr(app, "broadcast_data")
+# Flask web server to keep the bot alive
+app_web = Flask(__name__)
 
-@app.on_message(filters.command("restart") & filters.user(ADMIN_IDS))
-async def restart_command(client, message):
-    """Restart the bot (requires proper system setup)"""
-    await message.reply_text("🔄 **Restarting bot...**")
-    # Close resources
-    await close_aiohttp_session()
-    # Use os.execl to restart the process
-    import sys
-    os.execl(sys.executable, sys.executable, *sys.argv)
+@app_web.route('/')
+def home():
+    return "Terabox Downloader Bot is running!"
 
-@app.on_message(filters.command("ping"))
-async def ping_command(client, message):
-    """Check bot's response time"""
+def run_web_server():
+    app_web.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+
+# Startup and main function
+async def startup():
+    global user, start_time
     start_time = time.time()
-    ping_msg = await message.reply_text("🏓 **Pinging...**")
-    end_time = time.time()
     
-    ping_time = round((end_time - start_time) * 1000, 2)
-    
-    await ping_msg.edit_text(f"🏓 **Pong!** `{ping_time}ms`")
+    # Start the user client if available
+    if USER_SESSION_STRING:
+        try:
+            await user.start()
+            logger.info("User client started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start user client: {e}")
+            user = None
 
-@app.on_message(filters.command("cleancache") & filters.user(ADMIN_IDS))
-async def clean_cache(client, message):
-    """Clean download cache"""
-    try:
-        import shutil
-        if os.path.exists("downloads"):
-            shutil.rmtree("downloads")
-            os.makedirs("downloads", exist_ok=True)
-            
-        await message.reply_text("✅ **Download cache cleaned successfully!**")
-    except Exception as e:
-        logger.error(f"Clean cache error: {e}")
-        await message.reply_text(f"❌ **Error cleaning cache:** `{str(e)}`")
-
-# Enhanced error handling
-@app.on_message(filters.regex(r'https?://.*') & filters.private & ~filters.command)
-async def url_handler(client, message):
-    """Handle URLs that might not be Terabox links"""
-    url = message.text.strip()
-    
-    if is_valid_url(url):
-        await process_url(client, message, url)
-    else:
-        domains = ', '.join(VALID_DOMAINS[:5]) + '...'
-        await message.reply_text(
-            f"❌ **Not a valid Terabox link!**\n\n"
-            f"I only support links from: {domains}\n\n"
-            f"Please send a valid Terabox link."
-        )
-
-# Function to track user interactions
-@app.on_message(filters.private)
-async def track_user(client, message):
-    """Track users who interact with the bot"""
-    user_id = message.from_user.id
-    
-    # Simple tracking - append to file
-    try:
-        with open("users.txt", "a+") as f:
-            f.seek(0)
-            user_ids = set(line.strip() for line in f)
-            if str(user_id) not in user_ids:
-                f.write(f"{user_id}\n")
-    except Exception as e:
-        logger.error(f"Error tracking user: {e}")
-
-# Start the bot
-async def start_bot():
-    global session
-    
-    # Setup AIOHTTP session
-    session = await setup_aiohttp_session()
-    
-    # Start user client if available
-    if user:
-        await user.start()
-        logger.info("User client started")
-    
-    # Start Flask server in a separate thread
-    flask_thread = Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-    
-    # Start bot
+    # Start the bot
     await app.start()
-    logger.info("Bot started!")
+    logger.info("Bot started successfully")
+    
+    # Set up aiohttp session
+    await setup_aiohttp_session()
     
     # Keep the bot running
-    await asyncio.Event().wait()
+    while True:
+        await asyncio.sleep(1)
 
-# Close resources on shutdown
 async def shutdown():
-    # Close sessions
+    # Close aiohttp session
     await close_aiohttp_session()
     
-    # Stop clients
+    # Stop the clients
     if user:
         await user.stop()
     await app.stop()
 
 if __name__ == "__main__":
+    # Start Flask server in a separate thread
+    web_thread = Thread(target=run_web_server)
+    web_thread.daemon = True
+    web_thread.start()
+    
+    # Run the bot
+    loop = asyncio.get_event_loop()
     try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(start_bot())
+        loop.run_until_complete(startup())
     except KeyboardInterrupt:
-        logger.info("Bot stopped!")
+        logger.info("Stopping bot...")
         loop.run_until_complete(shutdown())
-    except Exception as e:
-        logger.error(f"Fatal error: {e}")
+    finally:
+        loop.close()
