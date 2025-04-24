@@ -591,12 +591,6 @@ async def handle_message(client, message):
         await process_url(client, message, text)
     else:
         await message.reply_text("❌ **ɪɴᴠᴀʟɪᴅ ᴛᴇʀᴀʙᴏx ʟɪɴᴋ!** ᴘʟᴇᴀsᴇ sᴇɴᴅ ᴀ ᴠᴀʟɪᴅ ʟɪɴᴋ.")
-
-# Web UI for status (optional)
-app_flask = Flask(__name__)
-
-@app_flask.route('/')
-def index():
     # Web UI for status (optional)
 app_flask = Flask(__name__)
 
