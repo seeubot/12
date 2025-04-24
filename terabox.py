@@ -580,7 +580,6 @@ async def process_url(client, message, url):
     except Exception as e:
         logger.error(f"Process URL error: {e}")
         await message.reply_text(f"❌ **ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ:** `{str(e)}`")
-
 @app.on_message(filters.text & filters.private & ~filters.command)
 async def handle_message(client, message):
     """Handle incoming messages with URLs"""
