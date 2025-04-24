@@ -1,7 +1,7 @@
 from aria2p import API as Aria2API, Client as Aria2Client
 import asyncio
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import logging
 import math
@@ -92,9 +92,20 @@ app = Client("jetbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 user = None
 SPLIT_SIZE = 2093796556  # Default split size ~2GB for bot API
+
+# Validate session string before initializing user client
 if USER_SESSION_STRING:
-    user = Client("jetu", api_id=API_ID, api_hash=API_HASH, session_string=USER_SESSION_STRING)
-    SPLIT_SIZE = 4241280205  # ~4GB for user client
+    try:
+        # Basic validation of session string format
+        if len(USER_SESSION_STRING.strip()) < 100:  # Rough validation
+            logger.error("Invalid session string format")
+            USER_SESSION_STRING = None
+        else:
+            user = Client("jetu", api_id=API_ID, api_hash=API_HASH, session_string=USER_SESSION_STRING)
+            SPLIT_SIZE = 4241280205  # ~4GB for user client
+    except Exception as e:
+        logger.error(f"Error initializing user client: {e}")
+        USER_SESSION_STRING = None
 
 VALID_DOMAINS = [
     'terabox.com', 'nephobox.com', '4funbox.com', 'mirrobox.com', 
@@ -152,8 +163,16 @@ def calculate_speed(bytes_transferred, elapsed_seconds, previous_speed=0):
 # Format time in a more readable way - FIXED VERSION
 def format_time(seconds):
     # Check if seconds is a timedelta object and convert it to seconds
-    if isinstance(seconds, datetime.timedelta):
+    if hasattr(seconds, 'total_seconds'):
         seconds = seconds.total_seconds()
+    
+    # Handle non-numeric or negative values
+    try:
+        seconds = float(seconds)
+        if seconds < 0:
+            seconds = 0
+    except (ValueError, TypeError):
+        seconds = 0
     
     # Now handle the seconds as a numeric value
     if seconds < 60:
@@ -288,6 +307,12 @@ async def handle_message(client: Client, message: Message):
                 previous_speed
             )
             
+            # Handle ETA safely
+            try:
+                eta_display = format_time(download.eta)
+            except Exception:
+                eta_display = "Calculating..."
+            
             # More attractive status message
             status_text = (
                 f"🔽 <b>DOWNLOADING</b>\n\n"
@@ -296,7 +321,7 @@ async def handle_message(client: Client, message: Message):
                 f"{progress_bar} \n"
                 f"📊 <b>Speed:</b> {format_size(download.download_speed)}/s\n"
                 f"📦 <b>Downloaded:</b> {format_size(download.completed_length)} of {format_size(download.total_length)}\n"
-                f"⏱️ <b>ETA:</b> {format_time(download.eta)}\n"
+                f"⏱️ <b>ETA:</b> {eta_display}\n"
                 f"⏰ <b>Elapsed:</b> {format_time(elapsed_seconds)}\n\n"
                 f"👤 <b>User:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>\n"
             )
@@ -443,6 +468,17 @@ async def handle_message(client: Client, message: Message):
     async def handle_upload():
         file_size = os.path.getsize(file_path)
         
+        # Fall back to bot-only mode if user client initialization failed
+        if USER_SESSION_STRING and user is None:
+            logger.warning("User client initialization failed, falling back to bot-only mode")
+            await update_status(
+                status_message,
+                f"⚠️ User client unavailable. Falling back to bot mode (2GB limit)."
+            )
+            # Update the split size to bot API limit
+            global SPLIT_SIZE
+            SPLIT_SIZE = 2093796556
+        
         if file_size > SPLIT_SIZE:
             await update_status(
                 status_message,
@@ -469,14 +505,27 @@ async def handle_message(client: Client, message: Message):
                     )
                     
                     if USER_SESSION_STRING and user:
-                        sent = await user.send_video(
-                            DUMP_CHAT_ID, part, 
-                            caption=part_caption,
-                            progress=upload_progress
-                        )
-                        await app.copy_message(
-                            message.chat.id, DUMP_CHAT_ID, sent.id
-                        )
+                        try:
+                            sent = await user.send_video(
+                                DUMP_CHAT_ID, part, 
+                                caption=part_caption,
+                                progress=upload_progress
+                            )
+                            await app.copy_message(
+                                message.chat.id, DUMP_CHAT_ID, sent.id
+                            )
+                        except Exception as e:
+                            logger.error(f"Error using user client: {e}")
+                            # Fall back to bot client
+                            sent = await client.send_video(
+                                DUMP_CHAT_ID, part,
+                                caption=part_caption,
+                                progress=upload_progress
+                            )
+                            await client.send_video(
+                                message.chat.id, sent.video.file_id,
+                                caption=part_caption
+                            )
                     else:
                         sent = await client.send_video(
                             DUMP_CHAT_ID, part,
@@ -507,14 +556,27 @@ async def handle_message(client: Client, message: Message):
             )
             
             if USER_SESSION_STRING and user:
-                sent = await user.send_video(
-                    DUMP_CHAT_ID, file_path,
-                    caption=caption,
-                    progress=upload_progress
-                )
-                await app.copy_message(
-                    message.chat.id, DUMP_CHAT_ID, sent.id
-                )
+                try:
+                    sent = await user.send_video(
+                        DUMP_CHAT_ID, file_path,
+                        caption=caption,
+                        progress=upload_progress
+                    )
+                    await app.copy_message(
+                        message.chat.id, DUMP_CHAT_ID, sent.id
+                    )
+                except Exception as e:
+                    logger.error(f"Error using user client: {e}")
+                    # Fall back to bot client
+                    sent = await client.send_video(
+                        DUMP_CHAT_ID, file_path,
+                        caption=caption,
+                        progress=upload_progress
+                    )
+                    await client.send_video(
+                        message.chat.id, sent.video.file_id,
+                        caption=caption
+                    )
             else:
                 sent = await client.send_video(
                     DUMP_CHAT_ID, file_path,
@@ -585,13 +647,21 @@ def keep_alive():
 
 async def start_user_client():
     if user:
-        await user.start()
-        logger.info("User client started.")
+        try:
+            await user.start()
+            logger.info("User client started.")
+        except Exception as e:
+            logger.error(f"Failed to start user client: {e}")
+            global USER_SESSION_STRING
+            USER_SESSION_STRING = None
 
 def run_user():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(start_user_client())
+    try:
+        loop.run_until_complete(start_user_client())
+    except Exception as e:
+        logger.error(f"Error in user client thread: {e}")
 
 if __name__ == "__main__":
     keep_alive()
