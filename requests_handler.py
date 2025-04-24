@@ -17,13 +17,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants
-REQUEST_CHANNEL_ID = os.environ.get('REQUEST_CHANNEL_ID', '')
+REQUEST_CHANNEL_ID = os.environ.get('REQUEST_CHANNEL_ID', '-1002541647242')
 if len(REQUEST_CHANNEL_ID) == 0:
     logging.error("REQUEST_CHANNEL_ID variable is missing!")
 else:
     REQUEST_CHANNEL_ID = int(REQUEST_CHANNEL_ID)
 
-ADMIN_IDS = os.environ.get('ADMIN_IDS', '').split(',')
+ADMIN_IDS = os.environ.get('ADMIN_IDS', '1352497419').split(',')
 ADMIN_IDS = [int(admin_id.strip()) for admin_id in ADMIN_IDS if admin_id.strip()]
 if not ADMIN_IDS:
     logging.error("ADMIN_IDS variable is missing or invalid!")
