@@ -66,7 +66,7 @@ aria2c --enable-rpc --rpc-listen-all=true --rpc-allow-origin-all --daemon=true \
 --max-overall-upload-limit=0 \
 --file-allocation=none\n\
 sleep 2\n\
-python main.py' > /app/start.sh
+python terabox.py' > /app/start.sh
 
 # Make the script executable
 RUN chmod +x /app/start.sh
