@@ -2,49 +2,208 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>JetBot Status</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEEU TERABOX</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #1a2a6c, #b21f1f, #fdbb2d);
+            --text-gradient: linear-gradient(90deg, #00d2ff, #3a7bd5, #00ff87);
+            --accent-color: #00ffcc;
+            --dark-bg: #121212;
+            --light-text: #ffffff;
+            --card-bg: rgba(255, 255, 255, 0.05);
+            --shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.36);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-            color: #ffffff;
+            background: var(--primary-gradient);
+            color: var(--light-text);
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             height: 100vh;
             margin: 0;
             display: flex;
             justify-content: center;
             align-items: center;
-            overflow: hidden;
+            overflow-x: hidden;
+            background-size: 400% 400%;
+            animation: gradientShift 15s ease infinite;
         }
 
         .container {
             text-align: center;
-            animation: fadeIn 2s ease-in-out;
+            animation: fadeIn 1.5s ease-in-out;
+            max-width: 90%;
+            width: 600px;
+            padding: 2rem;
+            background: var(--card-bg);
+            backdrop-filter: blur(8px);
+            border-radius: 20px;
+            box-shadow: var(--shadow);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .container::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 60%);
+            animation: shine 6s linear infinite;
+            pointer-events: none;
         }
 
         h1 {
-            font-size: 3em;
-            margin-bottom: 0.2em;
-            background: linear-gradient(90deg, #00d2ff, #3a7bd5);
+            font-size: 3.5em;
+            margin-bottom: 0.5em;
+            background: var(--text-gradient);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
-            animation: float 3s ease-in-out infinite;
+            animation: float 4s ease-in-out infinite;
+            position: relative;
+            display: inline-block;
+        }
+
+        h1 a {
+            text-decoration: none;
+            color: inherit;
+            position: relative;
+        }
+
+        h1 a::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            bottom: -5px;
+            left: 0;
+            background: var(--text-gradient);
+            transform: scaleX(0);
+            transform-origin: right;
+            transition: transform 0.5s ease;
+        }
+
+        h1 a:hover::after {
+            transform: scaleX(1);
+            transform-origin: left;
         }
 
         p {
-            font-size: 1.2em;
-            opacity: 0.8;
-            animation: fadeIn 3s ease-in-out;
+            font-size: 1.4em;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+            animation: fadeIn 2s ease-in-out;
+            font-weight: 300;
+            letter-spacing: 1px;
+        }
+
+        .status-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 1.5rem 0;
+            padding: 0.5rem;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 30px;
+            backdrop-filter: blur(5px);
         }
 
         .pulse {
-            margin-top: 20px;
-            width: 20px;
-            height: 20px;
-            background-color: #00ffcc;
+            width: 15px;
+            height: 15px;
+            background-color: var(--accent-color);
             border-radius: 50%;
             animation: pulse 2s infinite;
-            margin-left: auto;
-            margin-right: auto;
+            margin-right: 10px;
+            box-shadow: 0 0 10px var(--accent-color);
+        }
+
+        .status-text {
+            font-size: 1.1em;
+            font-weight: 500;
+        }
+
+        .social-links {
+            margin-top: 2rem;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        .social-icon {
+            font-size: 1.8rem;
+            color: var(--light-text);
+            transition: all 0.3s ease;
+            opacity: 0.7;
+        }
+
+        .social-icon:hover {
+            transform: translateY(-5px);
+            opacity: 1;
+            color: var(--accent-color);
+        }
+
+        .rocket {
+            display: inline-block;
+            animation: rocketFloat 3s ease-in-out infinite;
+            margin-right: 5px;
+            font-size: 1.2em;
+        }
+
+        .btn {
+            display: inline-block;
+            margin-top: 1.5rem;
+            padding: 0.8rem 2rem;
+            background: linear-gradient(90deg, #00d2ff, #3a7bd5);
+            color: white;
+            border: none;
+            border-radius: 30px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            box-shadow: 0 4px 15px rgba(0, 210, 255, 0.4);
+        }
+
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 7px 20px rgba(0, 210, 255, 0.6);
+        }
+
+        .btn:active {
+            transform: translateY(1px);
+        }
+
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        .particle {
+            position: absolute;
+            width: 5px;
+            height: 5px;
+            background: var(--accent-color);
+            border-radius: 50%;
+            opacity: 0.5;
+            animation: moveParticle 20s linear infinite;
         }
 
         @keyframes fadeIn {
@@ -58,17 +217,130 @@
         }
 
         @keyframes pulse {
-            0% { transform: scale(0.95); opacity: 0.7; }
-            70% { transform: scale(1); opacity: 1; }
-            100% { transform: scale(0.95); opacity: 0.7; }
+            0% { transform: scale(0.95); opacity: 0.7; box-shadow: 0 0 0 0 rgba(0, 255, 204, 0.7); }
+            70% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 10px rgba(0, 255, 204, 0); }
+            100% { transform: scale(0.95); opacity: 0.7; box-shadow: 0 0 0 0 rgba(0, 255, 204, 0); }
+        }
+
+        @keyframes rocketFloat {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-5px) rotate(5deg); }
+        }
+
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        @keyframes shine {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes moveParticle {
+            0% {
+                opacity: 0;
+                transform: translateY(0) translateX(0);
+            }
+            10% {
+                opacity: 0.5;
+            }
+            90% {
+                opacity: 0.5;
+            }
+            100% {
+                opacity: 0;
+                transform: translateY(-1000px) translateX(var(--x));
+            }
+        }
+
+        /* Responsive styles */
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2.8em;
+            }
+            p {
+                font-size: 1.2em;
+            }
+            .container {
+                padding: 1.5rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            h1 {
+                font-size: 2.2em;
+            }
+            p {
+                font-size: 1em;
+            }
+            .container {
+                padding: 1.2rem;
+            }
+            .btn {
+                padding: 0.7rem 1.5rem;
+            }
         }
     </style>
 </head>
 <body>
+    <div class="particles" id="particles"></div>
+    
     <div class="container">
-        <h1>🚀 <a href="https://t.me/JetMirror">JetBot</a> is Live!</h1>
-        <p>Everything is running smoothly.</p>
-        <div class="pulse"></div>
+        <h1><span class="rocket">🚀</span> <a href="https://t.me/dailydiskwala">SEEU</a> TERABOX</h1>
+        <p>Your ultimate TeraBox downloader service</p>
+        
+        <div class="status-container">
+            <div class="pulse"></div>
+            <span class="status-text">Service is running smoothly</span>
+        </div>
+        
+        <a href="https://t.me/dailydiskwala" class="btn">
+            <i class="fab fa-telegram"></i> Join Telegram Channel
+        </a>
+        
+        <div class="social-links">
+            <a href="https://t.me/dailydiskwala" class="social-icon">
+                <i class="fab fa-telegram"></i>
+            </a>
+            <a href="https://t.me/terao2" class="social-icon">
+                <i class="fas fa-user"></i>
+            </a>
+            <a href="#" class="social-icon">
+                <i class="fas fa-heart"></i>
+            </a>
+        </div>
     </div>
+
+    <script>
+        // Create floating particles
+        const particlesContainer = document.getElementById('particles');
+        const particleCount = 30;
+        
+        for (let i = 0; i < particleCount; i++) {
+            const particle = document.createElement('div');
+            particle.classList.add('particle');
+            
+            // Random positioning
+            const posX = Math.random() * 100;
+            const posY = Math.random() * 100;
+            const size = Math.random() * 4 + 1;
+            const duration = Math.random() * 15 + 10;
+            const delay = Math.random() * 5;
+            const xMovement = (Math.random() - 0.5) * 500;
+            
+            particle.style.left = `${posX}%`;
+            particle.style.top = `${posY}%`;
+            particle.style.width = `${size}px`;
+            particle.style.height = `${size}px`;
+            particle.style.opacity = Math.random() * 0.5 + 0.2;
+            particle.style.animationDuration = `${duration}s`;
+            particle.style.animationDelay = `${delay}s`;
+            particle.style.setProperty('--x', `${xMovement}px`);
+            
+            particlesContainer.appendChild(particle);
+        }
+    </script>
 </body>
 </html>
