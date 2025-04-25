@@ -190,8 +190,13 @@ async def start_command(client: Client, message: Message):
     join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/dailydiskwala")
     developer_button = InlineKeyboardButton("ᴅᴇᴠᴇʟᴏᴘᴇʀ ⚡️", url="https://t.me/terao2")
     repo69 = InlineKeyboardButton("Desi 18+", url="https://t.me/dailydiskwala")
+    request_video_button = InlineKeyboardButton("Request Video", url="https://t.me/teraseeubot")
     user_mention = message.from_user.mention
-    reply_markup = InlineKeyboardMarkup([[join_button, developer_button], [repo69]])
+    reply_markup = InlineKeyboardMarkup([
+        [join_button, developer_button], 
+        [repo69], 
+        [request_video_button]
+    ])
     final_msg = f"ᴡᴇʟᴄᴏᴍᴇ, {user_mention}.\n\n🌟 ɪ ᴀᴍ ᴀ ᴛᴇʀᴀʙᴏx ᴅᴏᴡɴʟᴏᴀᴅᴇʀ ʙᴏᴛ. sᴇɴᴅ ᴍᴇ ᴀɴʏ ᴛᴇʀᴀʙᴏx ʟɪɴᴋ ɪ ᴡɪʟʟ ᴅᴏᴡɴʟᴏᴀᴅ ᴡɪᴛʜɪɴ ғᴇᴡ sᴇᴄᴏɴᴅs ᴀɴᴅ sᴇɴᴅ ɪᴛ ᴛᴏ ʏᴏᴜ ✨."
     video_file_id = "/app/tera.mp4"
     if os.path.exists(video_file_id):
