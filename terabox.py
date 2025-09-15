@@ -190,8 +190,8 @@ def format_time(seconds):
 async def start_command(client: Client, message: Message):
     join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/dailydiskwala")
     developer_button = InlineKeyboardButton("ᴅᴇᴠᴇʟᴏᴘᴇʀ ⚡️", url="https://t.me/terao2")
-    bigg_boss_button = InlineKeyboardButton("Bigg Boss", url="https://t.me/joinchat/AAAAAFM4Q3WN7Q3WN")  # Update with actual invite link
-    telugu_videos_button = InlineKeyboardButton("Telugu Videos", url="https://t.me/joinchat/AAAAAFM4Q3WN7Q3WN")  # Update with actual invite link
+    bigg_boss_button = InlineKeyboardButton("Bigg Boss", url="https://t.me/+y0slgRpoKiNhYzg1")
+    telugu_videos_button = InlineKeyboardButton("Telugu Videos", url="https://t.me/+y0slgRpoKiNhYzg1")
     
     user_mention = message.from_user.mention
     
@@ -289,64 +289,37 @@ async def update_status_message(status_message, text):
     except Exception as e:
         logger.error(f"Failed to update status message: {e}")
 
-# Multiple API endpoints for TeraBox extraction
+# Single API endpoint for TeraBox extraction
 async def get_direct_link(url):
-    api_endpoints = [
-        f"https://terabox-downloader.nephobox.workers.dev/?url={url}",
-        f"https://teraboxvideodownloader.nephobox.workers.dev/fetch?url={url}",
-        f"https://www.expertsphp.com/terabox.php?link={url}",
-        f"https://terabox-dl.qtcloud.workers.dev/api?url={url}",
-    ]
+    api_url = f"https://my-noor-queen-api.woodmirror.workers.dev/api?url={url}"
     
-    for api_url in api_endpoints:
-        try:
-            logger.info(f"Trying API endpoint: {api_url}")
-            response = requests.get(api_url, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            
-            # Handle different API response formats
-            if 'direct_link' in data:
-                return {
-                    "direct_url": data["direct_link"],
-                    "filename": data.get("file_name", "Unknown"),
-                    "size": data.get("file_size", "Unknown")
-                }
-            elif 'download_link' in data:
-                return {
-                    "direct_url": data["download_link"],
-                    "filename": data.get("file_name", "Unknown"),
-                    "size": data.get("file_size", "Unknown")
-                }
-            elif data.get("status") == "success" and "data" in data:
-                file_info = data["data"]
-                return {
-                    "direct_url": file_info.get("download_link", ""),
-                    "filename": file_info.get("filename", "Unknown"),
-                    "size": file_info.get("size", "Unknown")
-                }
-            elif isinstance(data, dict) and "files" in data:
-                # Handle array format
-                if data["files"]:
-                    file_info = data["files"][0]
-                    return {
-                        "direct_url": file_info.get("link", ""),
-                        "filename": file_info.get("name", "Unknown"),
-                        "size": file_info.get("size", "Unknown")
-                    }
+    try:
+        logger.info(f"Fetching from API: {api_url}")
+        response = requests.get(api_url, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Handle the API response format
+        if data.get("status") == "✅ Successfully" and "download_link" in data:
+            return {
+                "direct_url": data["download_link"],
+                "filename": data.get("file_name", "Unknown"),
+                "size": data.get("file_size", "Unknown"),
+                "size_bytes": data.get("size_bytes", 0)
+            }
+        else:
+            logger.error(f"API returned error: {data}")
+            return None
                     
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Network error with {api_url}: {e}")
-            continue
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error with {api_url}: {e}")
-            continue
-        except Exception as e:
-            logger.error(f"Error with {api_url}: {e}")
-            continue
-    
-    logger.error("All API endpoints failed")
-    return None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Network error with API: {e}")
+        return None
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error with API: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Error with API: {e}")
+        return None
 
 @app.on_message(filters.text)
 async def handle_message(client: Client, message: Message):
@@ -393,11 +366,11 @@ async def handle_message(client: Client, message: Message):
     # Create a tracking message
     status_message = await message.reply_text("🔍 Extracting file info...")
     
-    # Get direct download link using multiple API endpoints
+    # Get direct download link using the single API endpoint
     link_info = await get_direct_link(url)
     if not link_info or not link_info.get("direct_url"):
         await status_message.edit_text(
-            "❌ Failed to extract download link from all available sources. "
+            "❌ Failed to extract download link. "
             "The link might be invalid, expired, or temporarily unavailable. "
             "Please try again later or check if the link is correct."
         )
@@ -484,8 +457,8 @@ async def handle_message(client: Client, message: Message):
         f"📤 <b>Starting upload to Telegram...</b>"
     )
 
-    # Determine target channel based on user
-    target_channel = BIGG_BOSS_CHANNEL_ID if is_admin(user_id) else DUMP_CHAT_ID
+    # Determine target channel: regular users go to DUMP_CHAT_ID, admins can upload to Bigg Boss channel
+    target_channel = DUMP_CHAT_ID
     
     caption = (
         f"✨ {download.name}\n"
