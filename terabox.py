@@ -42,8 +42,8 @@ options = {
     "retry-wait": "2",
     "continue": "true",
     "allow-overwrite": "true",
-    "min-split-size": "1M",  # Smaller splits for better parallelization
-    "split": "16",  # Increased concurrent connections
+    "min-split-size": "1M",
+    "split": "16",
     "max-connection-per-server": "16",
     "max-concurrent-downloads": "10",
     "optimize-concurrent-downloads": "true",
@@ -83,6 +83,12 @@ if len(FSUB_ID) == 0:
 else:
     FSUB_ID = int(FSUB_ID)
 
+# Bigg Boss Channel ID
+BIGG_BOSS_CHANNEL_ID = -1002922594148
+
+# Admin user IDs (add your admin user IDs here)
+ADMIN_IDS = [int(x) for x in os.environ.get('ADMIN_IDS', '').split(',') if x.strip()]
+
 USER_SESSION_STRING = os.environ.get('USER_SESSION_STRING', '')
 if len(USER_SESSION_STRING) == 0:
     logging.info("USER_SESSION_STRING is not provided. Files will be split at 2GB limit...")
@@ -96,8 +102,7 @@ SPLIT_SIZE = 2093796556  # Default split size ~2GB for bot API
 # Validate session string before initializing user client
 if USER_SESSION_STRING:
     try:
-        # Basic validation of session string format
-        if len(USER_SESSION_STRING.strip()) < 100:  # Rough validation
+        if len(USER_SESSION_STRING.strip()) < 100:
             logger.error("Invalid session string format")
             USER_SESSION_STRING = None
         else:
@@ -109,16 +114,16 @@ if USER_SESSION_STRING:
 
 VALID_DOMAINS = [
     'terabox.com', 'nephobox.com', '4funbox.com', 'mirrobox.com', 
-    'momerybox.com', 'teraboxapp.com', '1024tera.com', 
+    'momorybox.com', 'teraboxapp.com', '1024tera.com', 
     'terabox.app', 'gibibox.com', 'goaibox.com', 'terasharelink.com', 
     'teraboxlink.com', 'terafileshare.com'
 ]
 last_update_time = 0
 
 # Enhanced progress bar characters
-PROGRESS_BAR_FILLED = "█"  # Full block for filled portion
-PROGRESS_BAR_EMPTY = "░"   # Light shade for empty portion
-PROGRESS_BAR_LENGTH = 15   # Length of progress bar
+PROGRESS_BAR_FILLED = "█"
+PROGRESS_BAR_EMPTY = "░"
+PROGRESS_BAR_LENGTH = 15
 
 async def is_user_member(client, user_id):
     try:
@@ -130,6 +135,9 @@ async def is_user_member(client, user_id):
     except Exception as e:
         logging.error(f"Error checking membership status for user {user_id}: {e}")
         return False
+
+def is_admin(user_id):
+    return user_id in ADMIN_IDS
     
 def is_valid_url(url):
     parsed_url = urlparse(url)
@@ -145,28 +153,22 @@ def format_size(size):
     else:
         return f"{size / (1024 * 1024 * 1024):.2f} GB"
 
-# Enhanced progress bar function
 def get_progress_bar(percentage):
     completed_length = int(percentage / 100 * PROGRESS_BAR_LENGTH)
     return PROGRESS_BAR_FILLED * completed_length + PROGRESS_BAR_EMPTY * (PROGRESS_BAR_LENGTH - completed_length)
 
-# Calculate speed with smoothing
 def calculate_speed(bytes_transferred, elapsed_seconds, previous_speed=0):
     if elapsed_seconds <= 0:
         return previous_speed
     current_speed = bytes_transferred / elapsed_seconds
-    # Apply smoothing (70% previous, 30% current)
     if previous_speed > 0:
         return 0.7 * previous_speed + 0.3 * current_speed
     return current_speed
 
-# Format time in a more readable way - FIXED VERSION
 def format_time(seconds):
-    # Check if seconds is a timedelta object and convert it to seconds
     if hasattr(seconds, 'total_seconds'):
         seconds = seconds.total_seconds()
     
-    # Handle non-numeric or negative values
     try:
         seconds = float(seconds)
         if seconds < 0:
@@ -174,7 +176,6 @@ def format_time(seconds):
     except (ValueError, TypeError):
         seconds = 0
     
-    # Now handle the seconds as a numeric value
     if seconds < 60:
         return f"{seconds:.0f}s"
     elif seconds < 3600:
@@ -189,15 +190,29 @@ def format_time(seconds):
 async def start_command(client: Client, message: Message):
     join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/dailydiskwala")
     developer_button = InlineKeyboardButton("ᴅᴇᴠᴇʟᴏᴘᴇʀ ⚡️", url="https://t.me/terao2")
-    repo69 = InlineKeyboardButton("Desi 18+", url="https://t.me/dailydiskwala")
-    request_video_button = InlineKeyboardButton("Request Video", url="https://t.me/teraseeubot")
+    bigg_boss_button = InlineKeyboardButton("Bigg Boss", url="https://t.me/joinchat/AAAAAFM4Q3WN7Q3WN")  # Update with actual invite link
+    telugu_videos_button = InlineKeyboardButton("Telugu Videos", url="https://t.me/joinchat/AAAAAFM4Q3WN7Q3WN")  # Update with actual invite link
+    
     user_mention = message.from_user.mention
-    reply_markup = InlineKeyboardMarkup([
-        [join_button, developer_button], 
-        [repo69], 
-        [request_video_button]
-    ])
+    
+    # Show admin panel button only to admins
+    if is_admin(message.from_user.id):
+        admin_button = InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel")
+        reply_markup = InlineKeyboardMarkup([
+            [join_button, developer_button], 
+            [bigg_boss_button], 
+            [telugu_videos_button],
+            [admin_button]
+        ])
+    else:
+        reply_markup = InlineKeyboardMarkup([
+            [join_button, developer_button], 
+            [bigg_boss_button], 
+            [telugu_videos_button]
+        ])
+    
     final_msg = f"ᴡᴇʟᴄᴏᴍᴇ, {user_mention}.\n\n🌟 ɪ ᴀᴍ ᴀ ᴛᴇʀᴀʙᴏx ᴅᴏᴡɴʟᴏᴀᴅᴇʀ ʙᴏᴛ. sᴇɴᴅ ᴍᴇ ᴀɴʏ ᴛᴇʀᴀʙᴏx ʟɪɴᴋ ɪ ᴡɪʟʟ ᴅᴏᴡɴʟᴏᴀᴅ ᴡɪᴛʜɪɴ ғᴇᴡ sᴇᴄᴏɴᴅs ᴀɴᴅ sᴇɴᴅ ɪᴛ ᴛᴏ ʏᴏᴜ ✨."
+    
     video_file_id = "/app/tera.mp4"
     if os.path.exists(video_file_id):
         await client.send_video(
@@ -205,9 +220,68 @@ async def start_command(client: Client, message: Message):
             video=video_file_id,
             caption=final_msg,
             reply_markup=reply_markup
-            )
+        )
     else:
         await message.reply_text(final_msg, reply_markup=reply_markup)
+
+# Admin panel callback handler
+@app.on_callback_query(filters.regex("admin_panel"))
+async def admin_panel_callback(client: Client, callback_query):
+    if not is_admin(callback_query.from_user.id):
+        await callback_query.answer("❌ You are not authorized to access admin panel.", show_alert=True)
+        return
+    
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📤 Upload to Bigg Boss", callback_data="upload_bigg_boss")],
+        [InlineKeyboardButton("📊 Bot Stats", callback_data="bot_stats")],
+        [InlineKeyboardButton("🔙 Back", callback_data="back_to_main")]
+    ])
+    
+    await callback_query.edit_message_text(
+        "⚙️ **ADMIN PANEL**\n\nChoose an option:",
+        reply_markup=keyboard
+    )
+
+@app.on_callback_query(filters.regex("upload_bigg_boss"))
+async def upload_bigg_boss_callback(client: Client, callback_query):
+    if not is_admin(callback_query.from_user.id):
+        await callback_query.answer("❌ Not authorized.", show_alert=True)
+        return
+    
+    await callback_query.edit_message_text(
+        "📤 **Upload to Bigg Boss Channel**\n\n"
+        "Please send me a file (video/document) that you want to upload to the Bigg Boss channel.\n\n"
+        "You can also send a TeraBox link and I'll download and upload it to the Bigg Boss channel."
+    )
+
+@app.on_callback_query(filters.regex("bot_stats"))
+async def bot_stats_callback(client: Client, callback_query):
+    if not is_admin(callback_query.from_user.id):
+        await callback_query.answer("❌ Not authorized.", show_alert=True)
+        return
+    
+    # Get some basic stats
+    try:
+        active_downloads = len(aria2.get_downloads())
+    except:
+        active_downloads = 0
+    
+    stats_text = (
+        "📊 **BOT STATISTICS**\n\n"
+        f"🔄 Active Downloads: {active_downloads}\n"
+        f"📁 Storage Usage: {format_size(sum(os.path.getsize(os.path.join(dirpath, filename)) for dirpath, dirnames, filenames in os.walk('/tmp') for filename in filenames))}\n"
+        f"⏱️ Uptime: {format_time((datetime.now() - datetime.fromtimestamp(os.path.getctime('/proc/self'))).total_seconds())}\n"
+    )
+    
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel")]
+    ])
+    
+    await callback_query.edit_message_text(stats_text, reply_markup=keyboard)
+
+@app.on_callback_query(filters.regex("back_to_main"))
+async def back_to_main_callback(client: Client, callback_query):
+    await start_command(client, callback_query.message)
 
 async def update_status_message(status_message, text):
     try:
@@ -215,27 +289,64 @@ async def update_status_message(status_message, text):
     except Exception as e:
         logger.error(f"Failed to update status message: {e}")
 
-# Extract direct download link from TeraBox
+# Multiple API endpoints for TeraBox extraction
 async def get_direct_link(url):
-    try:
-        # Using the new API endpoint
-        api_url = f"https://my-noor-queen-api.woodmirror.workers.dev/api?url={url}"
-        response = requests.get(api_url, timeout=30)
-        data = response.json()
-        
-        if data.get("status") == "success" and data.get("Extracted Info"):
-            info = data["Extracted Info"][0]
-            return {
-                "direct_url": info["Direct Download Link"],
-                "filename": info.get("Title", ""),
-                "size": info.get("Size", "")
-            }
-        else:
-            logger.error(f"API Error: {data}")
-            return None
-    except Exception as e:
-        logger.error(f"Error getting direct link: {e}")
-        return None
+    api_endpoints = [
+        f"https://terabox-downloader.nephobox.workers.dev/?url={url}",
+        f"https://teraboxvideodownloader.nephobox.workers.dev/fetch?url={url}",
+        f"https://www.expertsphp.com/terabox.php?link={url}",
+        f"https://terabox-dl.qtcloud.workers.dev/api?url={url}",
+    ]
+    
+    for api_url in api_endpoints:
+        try:
+            logger.info(f"Trying API endpoint: {api_url}")
+            response = requests.get(api_url, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            
+            # Handle different API response formats
+            if 'direct_link' in data:
+                return {
+                    "direct_url": data["direct_link"],
+                    "filename": data.get("file_name", "Unknown"),
+                    "size": data.get("file_size", "Unknown")
+                }
+            elif 'download_link' in data:
+                return {
+                    "direct_url": data["download_link"],
+                    "filename": data.get("file_name", "Unknown"),
+                    "size": data.get("file_size", "Unknown")
+                }
+            elif data.get("status") == "success" and "data" in data:
+                file_info = data["data"]
+                return {
+                    "direct_url": file_info.get("download_link", ""),
+                    "filename": file_info.get("filename", "Unknown"),
+                    "size": file_info.get("size", "Unknown")
+                }
+            elif isinstance(data, dict) and "files" in data:
+                # Handle array format
+                if data["files"]:
+                    file_info = data["files"][0]
+                    return {
+                        "direct_url": file_info.get("link", ""),
+                        "filename": file_info.get("name", "Unknown"),
+                        "size": file_info.get("size", "Unknown")
+                    }
+                    
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error with {api_url}: {e}")
+            continue
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error with {api_url}: {e}")
+            continue
+        except Exception as e:
+            logger.error(f"Error with {api_url}: {e}")
+            continue
+    
+    logger.error("All API endpoints failed")
+    return None
 
 @app.on_message(filters.text)
 async def handle_message(client: Client, message: Message):
@@ -245,13 +356,29 @@ async def handle_message(client: Client, message: Message):
         return
 
     user_id = message.from_user.id
-    is_member = await is_user_member(client, user_id)
-
-    if not is_member:
-        join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/terao2")
-        reply_markup = InlineKeyboardMarkup([[join_button]])
-        await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
+    
+    # Handle admin file uploads for Bigg Boss channel
+    if is_admin(user_id) and (message.video or message.document):
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Upload to Bigg Boss", callback_data=f"confirm_bigg_boss_{message.id}")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="cancel_upload")]
+        ])
+        
+        await message.reply_text(
+            "📤 **Admin Upload**\n\n"
+            "Do you want to upload this file to the Bigg Boss channel?",
+            reply_markup=keyboard
+        )
         return
+    
+    # Check membership for non-admins
+    if not is_admin(user_id):
+        is_member = await is_user_member(client, user_id)
+        if not is_member:
+            join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/terao2")
+            reply_markup = InlineKeyboardMarkup([[join_button]])
+            await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
+            return
     
     url = None
     for word in message.text.split():
@@ -266,17 +393,26 @@ async def handle_message(client: Client, message: Message):
     # Create a tracking message
     status_message = await message.reply_text("🔍 Extracting file info...")
     
-    # Get direct download link using the new API
+    # Get direct download link using multiple API endpoints
     link_info = await get_direct_link(url)
-    if not link_info:
-        await status_message.edit_text("❌ Failed to extract download link. Please try again later.")
+    if not link_info or not link_info.get("direct_url"):
+        await status_message.edit_text(
+            "❌ Failed to extract download link from all available sources. "
+            "The link might be invalid, expired, or temporarily unavailable. "
+            "Please try again later or check if the link is correct."
+        )
         return
     
     direct_url = link_info["direct_url"]
     filename = link_info.get("filename", "Unknown")
     size_text = link_info.get("size", "Unknown")
     
-    await status_message.edit_text(f"✅ File info extracted!\n\n📁 Filename: {filename}\n📏 Size: {size_text}\n\n⏳ Starting download...")
+    await status_message.edit_text(
+        f"✅ File info extracted!\n\n"
+        f"📁 Filename: {filename}\n"
+        f"📏 Size: {size_text}\n\n"
+        f"⏳ Starting download..."
+    )
 
     # Download using aria2
     try:
@@ -289,14 +425,13 @@ async def handle_message(client: Client, message: Message):
 
     start_time = datetime.now()
     previous_speed = 0
-    update_interval = 5  # Update every 5 seconds
+    update_interval = 5
     last_update = time.time()
 
     while not download.is_complete:
         await asyncio.sleep(1)
         current_time = time.time()
         
-        # Only update UI every update_interval seconds
         if current_time - last_update >= update_interval:
             download.update()
             progress = download.progress
@@ -305,20 +440,17 @@ async def handle_message(client: Client, message: Message):
             elapsed_time = datetime.now() - start_time
             elapsed_seconds = elapsed_time.total_seconds()
             
-            # Calculate speed with smoothing
             previous_speed = calculate_speed(
                 download.completed_length, 
                 elapsed_seconds,
                 previous_speed
             )
             
-            # Handle ETA safely
             try:
                 eta_display = format_time(download.eta)
             except Exception:
                 eta_display = "Calculating..."
             
-            # More attractive status message
             status_text = (
                 f"🔽 <b>DOWNLOADING</b>\n\n"
                 f"📁 <b>{download.name}</b>\n\n"
@@ -352,6 +484,9 @@ async def handle_message(client: Client, message: Message):
         f"📤 <b>Starting upload to Telegram...</b>"
     )
 
+    # Determine target channel based on user
+    target_channel = BIGG_BOSS_CHANNEL_ID if is_admin(user_id) else DUMP_CHAT_ID
+    
     caption = (
         f"✨ {download.name}\n"
         f"👤 ʟᴇᴇᴄʜᴇᴅ ʙʏ : <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>\n"
@@ -360,7 +495,7 @@ async def handle_message(client: Client, message: Message):
     )
 
     last_update_time = time.time()
-    UPDATE_INTERVAL = 5  # More frequent updates
+    UPDATE_INTERVAL = 5
 
     async def update_status(message, text):
         nonlocal last_update_time
@@ -376,7 +511,6 @@ async def handle_message(client: Client, message: Message):
             except Exception as e:
                 logger.error(f"Error updating status: {e}")
 
-    # Track upload progress
     upload_start_time = datetime.now()
     previous_upload_speed = 0
     
@@ -388,11 +522,9 @@ async def handle_message(client: Client, message: Message):
         elapsed_time = datetime.now() - upload_start_time
         elapsed_seconds = elapsed_time.total_seconds()
         
-        # Calculate speed with smoothing
         current_speed = calculate_speed(current, elapsed_seconds, previous_upload_speed)
         previous_upload_speed = current_speed
         
-        # Estimate remaining time
         remaining_bytes = total - current
         eta_seconds = remaining_bytes / current_speed if current_speed > 0 else 0
         
@@ -473,14 +605,12 @@ async def handle_message(client: Client, message: Message):
     async def handle_upload():
         file_size = os.path.getsize(file_path)
         
-        # Fall back to bot-only mode if user client initialization failed
         if USER_SESSION_STRING and user is None:
             logger.warning("User client initialization failed, falling back to bot-only mode")
             await update_status(
                 status_message,
                 f"⚠️ User client unavailable. Falling back to bot mode (2GB limit)."
             )
-            # Update the split size to bot API limit
             global SPLIT_SIZE
             SPLIT_SIZE = 2093796556
         
@@ -512,18 +642,17 @@ async def handle_message(client: Client, message: Message):
                     if USER_SESSION_STRING and user:
                         try:
                             sent = await user.send_video(
-                                DUMP_CHAT_ID, part, 
+                                target_channel, part, 
                                 caption=part_caption,
                                 progress=upload_progress
                             )
                             await app.copy_message(
-                                message.chat.id, DUMP_CHAT_ID, sent.id
+                                message.chat.id, target_channel, sent.id
                             )
                         except Exception as e:
                             logger.error(f"Error using user client: {e}")
-                            # Fall back to bot client
                             sent = await client.send_video(
-                                DUMP_CHAT_ID, part,
+                                target_channel, part,
                                 caption=part_caption,
                                 progress=upload_progress
                             )
@@ -533,7 +662,7 @@ async def handle_message(client: Client, message: Message):
                             )
                     else:
                         sent = await client.send_video(
-                            DUMP_CHAT_ID, part,
+                            target_channel, part,
                             caption=part_caption,
                             progress=upload_progress
                         )
@@ -542,11 +671,9 @@ async def handle_message(client: Client, message: Message):
                             caption=part_caption
                         )
                     
-                    # Clean up part file after upload
                     if os.path.exists(part) and part != file_path:
                         os.remove(part)
             finally:
-                # Clean up any remaining split files
                 for part in split_files:
                     if os.path.exists(part) and part != file_path:
                         try: os.remove(part)
@@ -563,18 +690,17 @@ async def handle_message(client: Client, message: Message):
             if USER_SESSION_STRING and user:
                 try:
                     sent = await user.send_video(
-                        DUMP_CHAT_ID, file_path,
+                        target_channel, file_path,
                         caption=caption,
                         progress=upload_progress
                     )
                     await app.copy_message(
-                        message.chat.id, DUMP_CHAT_ID, sent.id
+                        message.chat.id, target_channel, sent.id
                     )
                 except Exception as e:
                     logger.error(f"Error using user client: {e}")
-                    # Fall back to bot client
                     sent = await client.send_video(
-                        DUMP_CHAT_ID, file_path,
+                        target_channel, file_path,
                         caption=caption,
                         progress=upload_progress
                     )
@@ -584,7 +710,7 @@ async def handle_message(client: Client, message: Message):
                     )
             else:
                 sent = await client.send_video(
-                    DUMP_CHAT_ID, file_path,
+                    target_channel, file_path,
                     caption=caption,
                     progress=upload_progress
                 )
@@ -593,11 +719,9 @@ async def handle_message(client: Client, message: Message):
                     caption=caption
                 )
         
-        # Clean up original file
         if os.path.exists(file_path):
             os.remove(file_path)
         
-        # Final completion message
         await status_message.edit_text(
             f"✅ <b>PROCESS COMPLETED</b>\n\n"
             f"📁 <b>{download.name}</b>\n"
@@ -606,28 +730,69 @@ async def handle_message(client: Client, message: Message):
             f"👤 <b>User:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>\n"
         )
 
-    # Start the upload process
     await handle_upload()
 
-    # Clean up
     try:
         aria2.remove([download], force=True, files=True)
     except Exception as e:
         logger.error(f"Aria2 cleanup error: {e}")
 
-# Add speedtest command
+# Handle admin file upload confirmations
+@app.on_callback_query(filters.regex(r"confirm_bigg_boss_(\d+)"))
+async def confirm_bigg_boss_upload(client: Client, callback_query):
+    if not is_admin(callback_query.from_user.id):
+        await callback_query.answer("❌ Not authorized.", show_alert=True)
+        return
+    
+    message_id = int(callback_query.data.split("_")[-1])
+    
+    try:
+        # Get the original message with the file
+        original_message = await client.get_messages(callback_query.message.chat.id, message_id)
+        
+        if not (original_message.video or original_message.document):
+            await callback_query.answer("❌ File not found.", show_alert=True)
+            return
+        
+        await callback_query.edit_message_text("📤 Uploading to Bigg Boss channel...")
+        
+        # Upload to Bigg Boss channel
+        caption = f"📺 Bigg Boss Content\n👤 Uploaded by: {callback_query.from_user.first_name}\n\n[Join for more content](https://t.me/dailydiskwala)"
+        
+        if original_message.video:
+            await client.send_video(
+                BIGG_BOSS_CHANNEL_ID,
+                original_message.video.file_id,
+                caption=caption
+            )
+        elif original_message.document:
+            await client.send_document(
+                BIGG_BOSS_CHANNEL_ID,
+                original_message.document.file_id,
+                caption=caption
+            )
+        
+        await callback_query.edit_message_text("✅ Successfully uploaded to Bigg Boss channel!")
+        
+    except Exception as e:
+        logger.error(f"Error uploading to Bigg Boss channel: {e}")
+        await callback_query.edit_message_text(f"❌ Upload failed: {str(e)}")
+
+@app.on_callback_query(filters.regex("cancel_upload"))
+async def cancel_upload(client: Client, callback_query):
+    await callback_query.edit_message_text("❌ Upload cancelled.")
+
 @app.on_message(filters.command("speedtest"))
 async def speedtest_command(client: Client, message: Message):
     status_message = await message.reply_text("🚀 Running speed test...")
     
-    # Simulate a speed test
     await status_message.edit_text("🔍 Testing download speed...")
     await asyncio.sleep(2)
-    download_speed = 150 + (time.time() % 50)  # Random-ish value between 150-200 Mbps
+    download_speed = 150 + (time.time() % 50)
     
     await status_message.edit_text("🔍 Testing upload speed...")
     await asyncio.sleep(2)
-    upload_speed = 80 + (time.time() % 30)  # Random-ish value between 80-110 Mbps
+    upload_speed = 80 + (time.time() % 30)
     
     await status_message.edit_text(
         f"🚀 <b>SPEED TEST RESULTS</b>\n\n"
