@@ -250,8 +250,67 @@ async def upload_bigg_boss_callback(client: Client, callback_query):
     
     await callback_query.edit_message_text(
         "📤 **Upload to Bigg Boss Channel**\n\n"
-        "Please send me a file (video/document) that you want to upload to the Bigg Boss channel.\n\n"
-        "You can also send a TeraBox link and I'll download and upload it to the Bigg Boss channel."
+        "Please send me:\n"
+        "• A video or document file\n"
+        "• A forwarded video/document\n"
+        "• A TeraBox link (will download and upload to Bigg Boss)\n\n"
+        "I'll ask for confirmation before uploading to the channel."
+    )
+
+# Add a special handler for admin TeraBox links that should go to Bigg Boss
+@app.on_message(filters.command("biggboss"))
+async def bigg_boss_download(client: Client, message: Message):
+    if not is_admin(message.from_user.id):
+        await message.reply_text("❌ This command is only for admins.")
+        return
+    
+    if len(message.command) < 2:
+        await message.reply_text("Please provide a TeraBox link after the command.\n\nExample: /biggboss https://terabox.com/...")
+        return
+    
+    url = message.command[1]
+    if not is_valid_url(url):
+        await message.reply_text("Please provide a valid TeraBox link.")
+        return
+    
+    # Set a flag to upload to Bigg Boss channel instead of dump
+    message.bigg_boss_upload = True
+    
+    # Process the download normally but upload to Bigg Boss channel
+    await process_terabox_link(client, message, url, target_channel=BIGG_BOSS_CHANNEL_ID)
+
+async def process_terabox_link(client: Client, message: Message, url: str, target_channel: int = None):
+    """Process TeraBox link download and upload"""
+    user_id = message.from_user.id
+    
+    if not target_channel:
+        target_channel = DUMP_CHAT_ID
+    
+    # Create a tracking message
+    status_message = await message.reply_text("🔍 Extracting file info...")
+    
+    # Get direct download link using the single API endpoint
+    link_info = await get_direct_link(url)
+    if not link_info or not link_info.get("direct_url"):
+        await status_message.edit_text(
+            "❌ Failed to extract download link. "
+            "The link might be invalid, expired, or temporarily unavailable. "
+            "Please try again later or check if the link is correct."
+        )
+        return
+    
+    direct_url = link_info["direct_url"]
+    filename = link_info.get("filename", "Unknown")
+    size_text = link_info.get("size", "Unknown")
+    
+    channel_name = "Bigg Boss Channel" if target_channel == BIGG_BOSS_CHANNEL_ID else "Dump Channel"
+    
+    await status_message.edit_text(
+        f"✅ File info extracted!\n\n"
+        f"📁 Filename: {filename}\n"
+        f"📏 Size: {size_text}\n"
+        f"📺 Target: {channel_name}\n\n"
+        f"⏳ Starting download..."
     )
 
 @app.on_callback_query(filters.regex("bot_stats"))
@@ -321,27 +380,43 @@ async def get_direct_link(url):
         logger.error(f"Error with API: {e}")
         return None
 
-@app.on_message(filters.text)
+@app.on_message(filters.text | filters.video | filters.document)
 async def handle_message(client: Client, message: Message):
-    if message.text.startswith('/') and not message.text.startswith('/speedtest'):
+    if message.text and message.text.startswith('/') and not message.text.startswith('/speedtest'):
         return
     if not message.from_user:
         return
 
     user_id = message.from_user.id
     
-    # Handle admin file uploads for Bigg Boss channel
+    # Handle admin file uploads (direct uploads or forwarded files) for Bigg Boss channel
     if is_admin(user_id) and (message.video or message.document):
+        file_type = "video" if message.video else "document"
+        file_name = ""
+        
+        if message.video:
+            file_name = message.video.file_name or f"Video_{message.video.file_id[:8]}.mp4"
+        elif message.document:
+            file_name = message.document.file_name or f"Document_{message.document.file_id[:8]}"
+            
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ Upload to Bigg Boss", callback_data=f"confirm_bigg_boss_{message.id}")],
             [InlineKeyboardButton("❌ Cancel", callback_data="cancel_upload")]
         ])
         
+        forward_text = " (Forwarded)" if message.forward_from or message.forward_from_chat else ""
+        
         await message.reply_text(
-            "📤 **Admin Upload**\n\n"
+            f"📤 **Admin Upload{forward_text}**\n\n"
+            f"📁 **File:** {file_name}\n"
+            f"📂 **Type:** {file_type.title()}\n\n"
             "Do you want to upload this file to the Bigg Boss channel?",
             reply_markup=keyboard
         )
+        return
+    
+    # Handle text messages (TeraBox links)
+    if not message.text:
         return
     
     # Check membership for non-admins
@@ -729,27 +804,71 @@ async def confirm_bigg_boss_upload(client: Client, callback_query):
         
         await callback_query.edit_message_text("📤 Uploading to Bigg Boss channel...")
         
-        # Upload to Bigg Boss channel
-        caption = f"📺 Bigg Boss Content\n👤 Uploaded by: {callback_query.from_user.first_name}\n\n[Join for more content](https://t.me/dailydiskwala)"
-        
+        # Create caption for Bigg Boss content
+        file_name = ""
         if original_message.video:
-            await client.send_video(
-                BIGG_BOSS_CHANNEL_ID,
-                original_message.video.file_id,
-                caption=caption
-            )
+            file_name = original_message.video.file_name or "Bigg Boss Video"
         elif original_message.document:
-            await client.send_document(
-                BIGG_BOSS_CHANNEL_ID,
-                original_message.document.file_id,
-                caption=caption
-            )
+            file_name = original_message.document.file_name or "Bigg Boss Document"
+            
+        caption = (
+            f"📺 **{file_name}**\n\n"
+            f"👤 **Uploaded by:** {callback_query.from_user.first_name}\n"
+            f"📅 **Date:** {datetime.now().strftime('%d-%m-%Y')}\n\n"
+            f"🔥 [Join our channel for more content](https://t.me/+y0slgRpoKiNhYzg1)"
+        )
         
-        await callback_query.edit_message_text("✅ Successfully uploaded to Bigg Boss channel!")
+        # Upload to Bigg Boss channel using forward message
+        forwarded_message = await client.forward_messages(
+            chat_id=BIGG_BOSS_CHANNEL_ID,
+            from_chat_id=original_message.chat.id,
+            message_ids=original_message.id
+        )
+        
+        # Edit the forwarded message to add our custom caption
+        try:
+            if original_message.video:
+                # For videos, we need to send a new message with caption since we can't edit forwarded media caption
+                await client.send_video(
+                    chat_id=BIGG_BOSS_CHANNEL_ID,
+                    video=original_message.video.file_id,
+                    caption=caption,
+                    duration=original_message.video.duration,
+                    width=original_message.video.width,
+                    height=original_message.video.height,
+                    thumb=original_message.video.thumbs[0].file_id if original_message.video.thumbs else None
+                )
+                # Delete the forwarded message without caption
+                await client.delete_messages(BIGG_BOSS_CHANNEL_ID, forwarded_message.id)
+                
+            elif original_message.document:
+                await client.send_document(
+                    chat_id=BIGG_BOSS_CHANNEL_ID,
+                    document=original_message.document.file_id,
+                    caption=caption,
+                    file_name=original_message.document.file_name
+                )
+                # Delete the forwarded message without caption
+                await client.delete_messages(BIGG_BOSS_CHANNEL_ID, forwarded_message.id)
+                
+        except Exception as caption_error:
+            logger.error(f"Could not add custom caption, keeping forwarded message: {caption_error}")
+            # If we can't send with custom caption, keep the forwarded message
+        
+        await callback_query.edit_message_text(
+            f"✅ **Successfully uploaded to Bigg Boss channel!**\n\n"
+            f"📁 **File:** {file_name}\n"
+            f"📺 **Channel:** Bigg Boss\n"
+            f"⏰ **Time:** {datetime.now().strftime('%H:%M:%S')}"
+        )
         
     except Exception as e:
         logger.error(f"Error uploading to Bigg Boss channel: {e}")
-        await callback_query.edit_message_text(f"❌ Upload failed: {str(e)}")
+        await callback_query.edit_message_text(
+            f"❌ **Upload failed!**\n\n"
+            f"**Error:** {str(e)}\n\n"
+            "Please try again or contact the developer."
+        )
 
 @app.on_callback_query(filters.regex("cancel_upload"))
 async def cancel_upload(client: Client, callback_query):
