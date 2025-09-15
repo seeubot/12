@@ -219,7 +219,7 @@ async def update_status_message(status_message, text):
 async def get_direct_link(url):
     try:
         # Using the new API endpoint
-        api_url = f"https://terabox-worker.robinkumarshakya103.workers.dev/api?url={url}"
+        api_url = f"https://my-noor-queen-api.woodmirror.workers.dev/api?url={url}"
         response = requests.get(api_url, timeout=30)
         data = response.json()
         
