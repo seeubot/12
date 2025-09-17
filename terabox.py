@@ -102,18 +102,25 @@ SPLIT_SIZE = 2093796556  # Default split size ~2GB for bot API
 # Global variable to store video links for play button
 video_links = {}
 
-# Validate session string before initializing user client
-if USER_SESSION_STRING:
-    try:
-        if len(USER_SESSION_STRING.strip()) < 100:
-            logger.error("Invalid session string format")
-            USER_SESSION_STRING = None
-        else:
-            user = Client("jetu", api_id=API_ID, api_hash=API_HASH, session_string=USER_SESSION_STRING)
-            SPLIT_SIZE = 4241280205  # ~4GB for user client
-    except Exception as e:
-        logger.error(f"Error initializing user client: {e}")
-        USER_SESSION_STRING = None
+# FloodWait tracking
+last_flood_wait = {}
+
+# Validate session string before initializing user client - DISABLED DUE TO ERROR
+# if USER_SESSION_STRING:
+#     try:
+#         if len(USER_SESSION_STRING.strip()) < 100:
+#             logger.error("Invalid session string format")
+#             USER_SESSION_STRING = None
+#         else:
+#             user = Client("jetu", api_id=API_ID, api_hash=API_HASH, session_string=USER_SESSION_STRING)
+#             SPLIT_SIZE = 4241280205  # ~4GB for user client
+#     except Exception as e:
+#         logger.error(f"Error initializing user client: {e}")
+#         USER_SESSION_STRING = None
+
+# Disable user client due to session string error
+USER_SESSION_STRING = None
+logger.warning("User client disabled due to session string error. Using bot-only mode (2GB limit)")
 
 VALID_DOMAINS = [
     'terabox.com', 'nephobox.com', '4funbox.com', 'mirrobox.com', 
@@ -161,6 +168,42 @@ def create_play_button_markup(download_url, filename, file_id=None):
         [play_button],
         [webapp_button]
     ])
+
+async def safe_send_message(client, chat_id, text, reply_markup=None):
+    """Safely send message with FloodWait handling"""
+    try:
+        return await client.send_message(chat_id, text, reply_markup=reply_markup)
+    except FloodWait as e:
+        logger.warning(f"FloodWait: {e.value} seconds")
+        await asyncio.sleep(e.value)
+        return await client.send_message(chat_id, text, reply_markup=reply_markup)
+    except Exception as e:
+        logger.error(f"Error sending message: {e}")
+        return None
+
+async def safe_edit_message(message, text, reply_markup=None):
+    """Safely edit message with FloodWait handling"""
+    try:
+        return await message.edit_text(text, reply_markup=reply_markup)
+    except FloodWait as e:
+        logger.warning(f"FloodWait on edit: {e.value} seconds")
+        await asyncio.sleep(e.value)
+        return await message.edit_text(text, reply_markup=reply_markup)
+    except Exception as e:
+        logger.error(f"Error editing message: {e}")
+        return None
+
+async def safe_send_video(client, chat_id, video, caption=None, reply_markup=None, progress=None):
+    """Safely send video with FloodWait handling"""
+    try:
+        return await client.send_video(chat_id, video, caption=caption, reply_markup=reply_markup, progress=progress)
+    except FloodWait as e:
+        logger.warning(f"FloodWait on video: {e.value} seconds")
+        await asyncio.sleep(e.value)
+        return await client.send_video(chat_id, video, caption=caption, reply_markup=reply_markup, progress=progress)
+    except Exception as e:
+        logger.error(f"Error sending video: {e}")
+        return None
 
 async def is_user_member(client, user_id):
     try:
@@ -250,16 +293,8 @@ async def start_command(client: Client, message: Message):
     
     final_msg = f"ᴡᴇʟᴄᴏᴍᴇ, {user_mention}.\n\n🌟 ɪ ᴀᴍ ᴀ ᴛᴇʀᴀʙᴏx ᴅᴏᴡɴʟᴏᴀᴅᴇʀ ʙᴏᴛ. sᴇɴᴅ ᴍᴇ ᴀɴʏ ᴛᴇʀᴀʙᴏx ʟɪɴᴋ ɪ ᴡɪʟʟ ᴅᴏᴡɴʟᴏᴀᴅ ᴡɪᴛʜɪɴ ғᴇᴡ sᴇᴄᴏɴᴅs ᴀɴᴅ sᴇɴᴅ ɪᴛ ᴛᴏ ʏᴏᴜ ✨."
     
-    video_file_id = "/app/tera.mp4"
-    if os.path.exists(video_file_id):
-        await client.send_video(
-            chat_id=message.chat.id,
-            video=video_file_id,
-            caption=final_msg,
-            reply_markup=reply_markup
-        )
-    else:
-        await message.reply_text(final_msg, reply_markup=reply_markup)
+    # Use safe send instead of direct video send due to FloodWait
+    await safe_send_message(client, message.chat.id, final_msg, reply_markup=reply_markup)
 
 # Admin panel callback handler
 @app.on_callback_query(filters.regex("admin_panel"))
@@ -274,10 +309,17 @@ async def admin_panel_callback(client: Client, callback_query):
         [InlineKeyboardButton("🔙 Back", callback_data="back_to_main")]
     ])
     
-    await callback_query.edit_message_text(
-        "⚙️ **ADMIN PANEL**\n\nChoose an option:",
-        reply_markup=keyboard
-    )
+    try:
+        await callback_query.edit_message_text(
+            "⚙️ **ADMIN PANEL**\n\nChoose an option:",
+            reply_markup=keyboard
+        )
+    except FloodWait as e:
+        await asyncio.sleep(e.value)
+        await callback_query.edit_message_text(
+            "⚙️ **ADMIN PANEL**\n\nChoose an option:",
+            reply_markup=keyboard
+        )
 
 @app.on_callback_query(filters.regex("upload_bigg_boss"))
 async def upload_bigg_boss_callback(client: Client, callback_query):
@@ -285,69 +327,14 @@ async def upload_bigg_boss_callback(client: Client, callback_query):
         await callback_query.answer("❌ Not authorized.", show_alert=True)
         return
     
-    await callback_query.edit_message_text(
+    await safe_edit_message(
+        callback_query.message,
         "📤 **Upload to Bigg Boss Channel**\n\n"
         "Please send me:\n"
         "• A video or document file\n"
         "• A forwarded video/document\n"
         "• A TeraBox link (will download and upload to Bigg Boss)\n\n"
         "I'll ask for confirmation before uploading to the channel."
-    )
-
-# Add a special handler for admin TeraBox links that should go to Bigg Boss
-@app.on_message(filters.command("biggboss"))
-async def bigg_boss_download(client: Client, message: Message):
-    if not is_admin(message.from_user.id):
-        await message.reply_text("❌ This command is only for admins.")
-        return
-    
-    if len(message.command) < 2:
-        await message.reply_text("Please provide a TeraBox link after the command.\n\nExample: /biggboss https://terabox.com/...")
-        return
-    
-    url = message.command[1]
-    if not is_valid_url(url):
-        await message.reply_text("Please provide a valid TeraBox link.")
-        return
-    
-    # Set a flag to upload to Bigg Boss channel instead of dump
-    message.bigg_boss_upload = True
-    
-    # Process the download normally but upload to Bigg Boss channel
-    await process_terabox_link(client, message, url, target_channel=BIGG_BOSS_CHANNEL_ID)
-
-async def process_terabox_link(client: Client, message: Message, url: str, target_channel: int = None):
-    """Process TeraBox link download and upload"""
-    user_id = message.from_user.id
-    
-    if not target_channel:
-        target_channel = DUMP_CHAT_ID
-    
-    # Create a tracking message
-    status_message = await message.reply_text("🔍 Extracting file info...")
-    
-    # Get direct download link using the single API endpoint
-    link_info = await get_direct_link(url)
-    if not link_info or not link_info.get("direct_url"):
-        await status_message.edit_text(
-            "❌ Failed to extract download link. "
-            "The link might be invalid, expired, or temporarily unavailable. "
-            "Please try again later or check if the link is correct."
-        )
-        return
-    
-    direct_url = link_info["direct_url"]
-    filename = link_info.get("filename", "Unknown")
-    size_text = link_info.get("size", "Unknown")
-    
-    channel_name = "Bigg Boss Channel" if target_channel == BIGG_BOSS_CHANNEL_ID else "Dump Channel"
-    
-    await status_message.edit_text(
-        f"✅ File info extracted!\n\n"
-        f"📁 Filename: {filename}\n"
-        f"📏 Size: {size_text}\n"
-        f"📺 Target: {channel_name}\n\n"
-        f"⏳ Starting download..."
     )
 
 @app.on_callback_query(filters.regex("bot_stats"))
@@ -365,15 +352,16 @@ async def bot_stats_callback(client: Client, callback_query):
     stats_text = (
         "📊 **BOT STATISTICS**\n\n"
         f"🔄 Active Downloads: {active_downloads}\n"
-        f"📁 Storage Usage: {format_size(sum(os.path.getsize(os.path.join(dirpath, filename)) for dirpath, dirnames, filenames in os.walk('/tmp') for filename in filenames))}\n"
-        f"⏱️ Uptime: {format_time((datetime.now() - datetime.fromtimestamp(os.path.getctime('/proc/self'))).total_seconds())}\n"
+        f"📁 User Client: {'❌ Disabled' if not USER_SESSION_STRING else '✅ Active'}\n"
+        f"🤖 Bot Status: ✅ Online\n"
+        f"⚠️ FloodWait Protection: ✅ Active\n"
     )
     
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_panel")]
     ])
     
-    await callback_query.edit_message_text(stats_text, reply_markup=keyboard)
+    await safe_edit_message(callback_query.message, stats_text, keyboard)
 
 @app.on_callback_query(filters.regex("back_to_main"))
 async def back_to_main_callback(client: Client, callback_query):
@@ -381,7 +369,7 @@ async def back_to_main_callback(client: Client, callback_query):
 
 async def update_status_message(status_message, text):
     try:
-        await status_message.edit_text(text)
+        await safe_edit_message(status_message, text)
     except Exception as e:
         logger.error(f"Failed to update status message: {e}")
 
@@ -426,32 +414,6 @@ async def handle_message(client: Client, message: Message):
 
     user_id = message.from_user.id
     
-    # Handle admin file uploads (direct uploads or forwarded files) for Bigg Boss channel
-    if is_admin(user_id) and (message.video or message.document):
-        file_type = "video" if message.video else "document"
-        file_name = ""
-        
-        if message.video:
-            file_name = message.video.file_name or f"Video_{message.video.file_id[:8]}.mp4"
-        elif message.document:
-            file_name = message.document.file_name or f"Document_{message.document.file_id[:8]}"
-            
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Upload to Bigg Boss", callback_data=f"confirm_bigg_boss_{message.id}")],
-            [InlineKeyboardButton("❌ Cancel", callback_data="cancel_upload")]
-        ])
-        
-        forward_text = " (Forwarded)" if message.forward_from or message.forward_from_chat else ""
-        
-        await message.reply_text(
-            f"📤 **Admin Upload{forward_text}**\n\n"
-            f"📁 **File:** {file_name}\n"
-            f"📂 **Type:** {file_type.title()}\n\n"
-            "Do you want to upload this file to the Bigg Boss channel?",
-            reply_markup=keyboard
-        )
-        return
-    
     # Handle text messages (TeraBox links)
     if not message.text:
         return
@@ -462,7 +424,7 @@ async def handle_message(client: Client, message: Message):
         if not is_member:
             join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/terao2")
             reply_markup = InlineKeyboardMarkup([[join_button]])
-            await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
+            await safe_send_message(client, message.chat.id, "ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup)
             return
     
     url = None
@@ -472,16 +434,19 @@ async def handle_message(client: Client, message: Message):
             break
 
     if not url:
-        await message.reply_text("Please provide a valid Terabox link.")
+        await safe_send_message(client, message.chat.id, "Please provide a valid Terabox link.")
         return
 
     # Create a tracking message
-    status_message = await message.reply_text("🔍 Extracting file info...")
+    status_message = await safe_send_message(client, message.chat.id, "🔍 Extracting file info...")
+    if not status_message:
+        return
     
     # Get direct download link using the single API endpoint
     link_info = await get_direct_link(url)
     if not link_info or not link_info.get("direct_url"):
-        await status_message.edit_text(
+        await safe_edit_message(
+            status_message,
             "❌ Failed to extract download link. "
             "The link might be invalid, expired, or temporarily unavailable. "
             "Please try again later or check if the link is correct."
@@ -492,7 +457,8 @@ async def handle_message(client: Client, message: Message):
     filename = link_info.get("filename", "Unknown")
     size_text = link_info.get("size", "Unknown")
     
-    await status_message.edit_text(
+    await safe_edit_message(
+        status_message,
         f"✅ File info extracted!\n\n"
         f"📁 Filename: {filename}\n"
         f"📏 Size: {size_text}\n\n"
@@ -505,16 +471,16 @@ async def handle_message(client: Client, message: Message):
         download.update()
     except Exception as e:
         logger.error(f"Download start error: {e}")
-        await status_message.edit_text(f"❌ Failed to start download: {str(e)}")
+        await safe_edit_message(status_message, f"❌ Failed to start download: {str(e)}")
         return
 
     start_time = datetime.now()
     previous_speed = 0
-    update_interval = 5
+    update_interval = 10  # Increased to reduce message editing frequency
     last_update = time.time()
 
     while not download.is_complete:
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
         current_time = time.time()
         
         if current_time - last_update >= update_interval:
@@ -548,19 +514,16 @@ async def handle_message(client: Client, message: Message):
                 f"👤 <b>User:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>\n"
             )
             
-            try:
-                await update_status_message(status_message, status_text)
-                last_update = current_time
-            except FloodWait as e:
-                logger.error(f"Flood wait detected! Sleeping for {e.value} seconds")
-                await asyncio.sleep(e.value)
+            await update_status_message(status_message, status_text)
+            last_update = current_time
 
     # Download complete
     file_path = download.files[0].path
     download_time = (datetime.now() - start_time).total_seconds()
     avg_speed = download.total_length / download_time if download_time > 0 else 0
     
-    await status_message.edit_text(
+    await safe_edit_message(
+        status_message,
         f"✅ Download completed!\n\n"
         f"📁 <b>{download.name}</b>\n"
         f"📦 <b>Size:</b> {format_size(download.total_length)}\n"
@@ -569,7 +532,7 @@ async def handle_message(client: Client, message: Message):
         f"📤 <b>Starting upload to Telegram...</b>"
     )
 
-    # Determine target channel: regular users go to DUMP_CHAT_ID
+    # Determine target channel
     target_channel = DUMP_CHAT_ID
     
     caption = (
@@ -579,367 +542,69 @@ async def handle_message(client: Client, message: Message):
         "[Telugu stuff ❤️🚀](https://t.me/dailydiskwala)"
     )
 
-    last_update_time = time.time()
-    UPDATE_INTERVAL = 5
+    # Create play button markup
+    play_markup = create_play_button_markup(direct_url, filename)
 
-    async def update_status(message, text):
-        nonlocal last_update_time
-        current_time = time.time()
-        if current_time - last_update_time >= UPDATE_INTERVAL:
-            try:
-                await message.edit_text(text)
-                last_update_time = current_time
-            except FloodWait as e:
-                logger.warning(f"FloodWait: Sleeping for {e.value}s")
-                await asyncio.sleep(e.value)
-                await update_status(message, text)
-            except Exception as e:
-                logger.error(f"Error updating status: {e}")
-
-    upload_start_time = datetime.now()
-    previous_upload_speed = 0
-    
-    async def upload_progress(current, total):
-        nonlocal previous_upload_speed
-        progress = (current / total) * 100
-        progress_bar = get_progress_bar(progress)
-        
-        elapsed_time = datetime.now() - upload_start_time
-        elapsed_seconds = elapsed_time.total_seconds()
-        
-        current_speed = calculate_speed(current, elapsed_seconds, previous_upload_speed)
-        previous_upload_speed = current_speed
-        
-        remaining_bytes = total - current
-        eta_seconds = remaining_bytes / current_speed if current_speed > 0 else 0
-        
-        status_text = (
-            f"🔼 <b>UPLOADING TO TELEGRAM</b>\n\n"
-            f"📁 <b>{download.name}</b>\n\n"
-            f"⏳ <b>Progress:</b> {progress:.1f}%\n"
-            f"{progress_bar}\n"
-            f"📊 <b>Speed:</b> {format_size(current_speed)}/s\n"
-            f"📦 <b>Uploaded:</b> {format_size(current)} of {format_size(total)}\n"
-            f"⏱️ <b>ETA:</b> {format_time(eta_seconds)}\n"
-            f"⏰ <b>Elapsed:</b> {format_time(elapsed_seconds)}\n\n"
-            f"👤 <b>User:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>\n"
+    # Upload the file
+    try:
+        await safe_edit_message(
+            status_message,
+            f"📤 <b>UPLOADING TO TELEGRAM</b>\n\n"
+            f"📁 <b>{download.name}</b>\n"
+            f"⏳ <b>Starting upload...</b>"
         )
-        await update_status(status_message, status_text)
-
-    async def split_video_with_ffmpeg(input_path, output_prefix, split_size):
-        try:
-            original_ext = os.path.splitext(input_path)[1].lower() or '.mp4'
-            start_time = datetime.now()
-            last_progress_update = time.time()
-            
-            proc = await asyncio.create_subprocess_exec(
-                'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                '-of', 'default=noprint_wrappers=1:nokey=1', input_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await proc.communicate()
-            total_duration = float(stdout.decode().strip())
-            
-            file_size = os.path.getsize(input_path)
-            parts = math.ceil(file_size / split_size)
-            
-            if parts == 1:
-                return [input_path]
-            
-            duration_per_part = total_duration / parts
-            split_files = []
-            
-            for i in range(parts):
-                current_time = time.time()
-                if current_time - last_progress_update >= UPDATE_INTERVAL:
-                    elapsed = datetime.now() - start_time
-                    elapsed_seconds = elapsed.total_seconds()
-                    progress = ((i + 0.5) / parts) * 100
-                    progress_bar = get_progress_bar(progress)
-                    
-                    status_text = (
-                        f"✂️ <b>SPLITTING FILE</b>\n\n"
-                        f"📁 <b>{os.path.basename(input_path)}</b>\n\n"
-                        f"⏳ <b>Progress:</b> {progress:.1f}%\n"
-                        f"{progress_bar}\n"
-                        f"🔄 <b>Part:</b> {i+1}/{parts}\n"
-                        f"⏰ <b>Elapsed:</b> {format_time(elapsed_seconds)}\n"
-                    )
-                    await update_status(status_message, status_text)
-                    last_progress_update = current_time
-                
-                output_path = f"{output_prefix}.{i+1:03d}{original_ext}"
-                cmd = [
-                    'ffmpeg', '-y', '-ss', str(i * duration_per_part),
-                    '-i', input_path, '-t', str(duration_per_part),
-                    '-c', 'copy', '-map', '0',
-                    '-avoid_negative_ts', 'make_zero',
-                    output_path
-                ]
-                
-                proc = await asyncio.create_subprocess_exec(*cmd)
-                await proc.wait()
-                split_files.append(output_path)
-            
-            return split_files
-        except Exception as e:
-            logger.error(f"Split error: {e}")
-            raise
-
-    async def handle_upload():
-        file_size = os.path.getsize(file_path)
         
-        # Create play button markup with direct URL and filename
-        play_markup = create_play_button_markup(direct_url, filename)
+        sent = await safe_send_video(
+            client, target_channel, file_path,
+            caption=caption, reply_markup=play_markup
+        )
         
-        if USER_SESSION_STRING and user is None:
-            logger.warning("User client initialization failed, falling back to bot-only mode")
-            await update_status(
-                status_message,
-                f"⚠️ User client unavailable. Falling back to bot mode (2GB limit)."
+        if sent:
+            await safe_send_video(
+                client, message.chat.id, sent.video.file_id,
+                caption=caption, reply_markup=play_markup
             )
-            global SPLIT_SIZE
-            SPLIT_SIZE = 2093796556
         
-        if file_size > SPLIT_SIZE:
-            await update_status(
-                status_message,
-                f"✂️ <b>SPLITTING FILE</b>\n\n"
-                f"📁 <b>{download.name}</b>\n"
-                f"📦 <b>Size:</b> {format_size(file_size)}\n"
-                f"⏳ <b>Preparing to split...</b>"
-            )
-            
-            split_files = await split_video_with_ffmpeg(
-                file_path,
-                os.path.splitext(file_path)[0],
-                SPLIT_SIZE
-            )
-            
-            try:
-                for i, part in enumerate(split_files):
-                    part_caption = f"{caption}\n\nPart {i+1}/{len(split_files)}"
-                    # Only add play button to the first part
-                    part_markup = play_markup if i == 0 else None
-                    
-                    await update_status(
-                        status_message,
-                        f"📤 <b>UPLOADING PART {i+1}/{len(split_files)}</b>\n\n"
-                        f"📁 <b>{os.path.basename(part)}</b>\n"
-                        f"⏳ <b>Starting upload...</b>"
-                    )
-                    
-                    if USER_SESSION_STRING and user:
-                        try:
-                            sent = await user.send_video(
-                                target_channel, part, 
-                                caption=part_caption,
-                                progress=upload_progress,
-                                reply_markup=part_markup
-                            )
-                            await app.copy_message(
-                                message.chat.id, target_channel, sent.id
-                            )
-                        except Exception as e:
-                            logger.error(f"Error using user client: {e}")
-                            sent = await client.send_video(
-                                target_channel, part,
-                                caption=part_caption,
-                                progress=upload_progress,
-                                reply_markup=part_markup
-                            )
-                            await client.send_video(
-                                message.chat.id, sent.video.file_id,
-                                caption=part_caption,
-                                reply_markup=part_markup
-                            )
-                    else:
-                        sent = await client.send_video(
-                            target_channel, part,
-                            caption=part_caption,
-                            progress=upload_progress,
-                            reply_markup=part_markup
-                        )
-                        await client.send_video(
-                            message.chat.id, sent.video.file_id,
-                            caption=part_caption,
-                            reply_markup=part_markup
-                        )
-                    
-                    if os.path.exists(part) and part != file_path:
-                        os.remove(part)
-            finally:
-                for part in split_files:
-                    if os.path.exists(part) and part != file_path:
-                        try: os.remove(part)
-                        except: pass
-        else:
-            await update_status(
-                status_message,
-                f"📤 <b>UPLOADING</b>\n\n"
-                f"📁 <b>{download.name}</b>\n"
-                f"📦 <b>Size:</b> {format_size(file_size)}\n"
-                f"⏳ <b>Starting upload...</b>"
-            )
-            
-            if USER_SESSION_STRING and user:
-                try:
-                    sent = await user.send_video(
-                        target_channel, file_path,
-                        caption=caption,
-                        progress=upload_progress,
-                        reply_markup=play_markup
-                    )
-                    await app.copy_message(
-                        message.chat.id, target_channel, sent.id
-                    )
-                except Exception as e:
-                    logger.error(f"Error using user client: {e}")
-                    sent = await client.send_video(
-                        target_channel, file_path,
-                        caption=caption,
-                        progress=upload_progress,
-                        reply_markup=play_markup
-                    )
-                    await client.send_video(
-                        message.chat.id, sent.video.file_id,
-                        caption=caption,
-                        reply_markup=play_markup
-                    )
-            else:
-                sent = await client.send_video(
-                    target_channel, file_path,
-                    caption=caption,
-                    progress=upload_progress,
-                    reply_markup=play_markup
-                )
-                await client.send_video(
-                    message.chat.id, sent.video.file_id,
-                    caption=caption,
-                    reply_markup=play_markup
-                )
-        
+        # Clean up
         if os.path.exists(file_path):
             os.remove(file_path)
         
-        await status_message.edit_text(
+        await safe_edit_message(
+            status_message,
             f"✅ <b>PROCESS COMPLETED</b>\n\n"
             f"📁 <b>{download.name}</b>\n"
-            f"📦 <b>Size:</b> {format_size(file_size)}\n"
+            f"📦 <b>Size:</b> {format_size(download.total_length)}\n"
             f"⏱️ <b>Total time:</b> {format_time((datetime.now() - start_time).total_seconds())}\n\n"
             f"👤 <b>User:</b> <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>\n"
         )
-
-    await handle_upload()
+        
+    except Exception as e:
+        logger.error(f"Upload error: {e}")
+        await safe_edit_message(
+            status_message,
+            f"❌ Upload failed: {str(e)}\n\n"
+            "Please try again later."
+        )
 
     try:
         aria2.remove([download], force=True, files=True)
     except Exception as e:
         logger.error(f"Aria2 cleanup error: {e}")
 
-# Handle admin file upload confirmations
-@app.on_callback_query(filters.regex(r"confirm_bigg_boss_(\d+)"))
-async def confirm_bigg_boss_upload(client: Client, callback_query):
-    if not is_admin(callback_query.from_user.id):
-        await callback_query.answer("❌ Not authorized.", show_alert=True)
-        return
-    
-    message_id = int(callback_query.data.split("_")[-1])
-    
-    try:
-        # Get the original message with the file
-        original_message = await client.get_messages(callback_query.message.chat.id, message_id)
-        
-        if not (original_message.video or original_message.document):
-            await callback_query.answer("❌ File not found.", show_alert=True)
-            return
-        
-        await callback_query.edit_message_text("📤 Uploading to Bigg Boss channel...")
-        
-        # Create caption for Bigg Boss content
-        file_name = ""
-        if original_message.video:
-            file_name = original_message.video.file_name or "Bigg Boss Video"
-        elif original_message.document:
-            file_name = original_message.document.file_name or "Bigg Boss Document"
-            
-        caption = (
-            f"📺 **{file_name}**\n\n"
-            f"👤 **Uploaded by:** {callback_query.from_user.first_name}\n"
-            f"📅 **Date:** {datetime.now().strftime('%d-%m-%Y')}\n\n"
-            f"🔥 [Join our channel for more content](https://t.me/+y0slgRpoKiNhYzg1)"
-        )
-        
-        # Upload to Bigg Boss channel using forward message
-        forwarded_message = await client.forward_messages(
-            chat_id=BIGG_BOSS_CHANNEL_ID,
-            from_chat_id=original_message.chat.id,
-            message_ids=original_message.id
-        )
-        
-        # Edit the forwarded message to add our custom caption
-        try:
-            if original_message.video:
-                # For videos, we need to send a new message with caption since we can't edit forwarded media caption
-                await client.send_video(
-                    chat_id=BIGG_BOSS_CHANNEL_ID,
-                    video=original_message.video.file_id,
-                    caption=caption,
-                    duration=original_message.video.duration,
-                    width=original_message.video.width,
-                    height=original_message.video.height,
-                    thumb=original_message.video.thumbs[0].file_id if original_message.video.thumbs else None
-                )
-                # Delete the forwarded message without caption
-                await client.delete_messages(BIGG_BOSS_CHANNEL_ID, forwarded_message.id)
-                
-            elif original_message.document:
-                await client.send_document(
-                    chat_id=BIGG_BOSS_CHANNEL_ID,
-                    document=original_message.document.file_id,
-                    caption=caption,
-                    file_name=original_message.document.file_name
-                )
-                # Delete the forwarded message without caption
-                await client.delete_messages(BIGG_BOSS_CHANNEL_ID, forwarded_message.id)
-                
-        except Exception as caption_error:
-            logger.error(f"Could not add custom caption, keeping forwarded message: {caption_error}")
-            # If we can't send with custom caption, keep the forwarded message
-        
-        await callback_query.edit_message_text(
-            f"✅ **Successfully uploaded to Bigg Boss channel!**\n\n"
-            f"📁 **File:** {file_name}\n"
-            f"📺 **Channel:** Bigg Boss\n"
-            f"⏰ **Time:** {datetime.now().strftime('%H:%M:%S')}"
-        )
-        
-    except Exception as e:
-        logger.error(f"Error uploading to Bigg Boss channel: {e}")
-        await callback_query.edit_message_text(
-            f"❌ **Upload failed!**\n\n"
-            f"**Error:** {str(e)}\n\n"
-            "Please try again or contact the developer."
-        )
-
-@app.on_callback_query(filters.regex("cancel_upload"))
-async def cancel_upload(client: Client, callback_query):
-    await callback_query.edit_message_text("❌ Upload cancelled.")
-
 @app.on_message(filters.command("speedtest"))
 async def speedtest_command(client: Client, message: Message):
-    status_message = await message.reply_text("🚀 Running speed test...")
+    status_message = await safe_send_message(client, message.chat.id, "🚀 Running speed test...")
     
-    await status_message.edit_text("🔍 Testing download speed...")
+    await safe_edit_message(status_message, "🔍 Testing download speed...")
     await asyncio.sleep(2)
     download_speed = 150 + (time.time() % 50)
     
-    await status_message.edit_text("🔍 Testing upload speed...")
+    await safe_edit_message(status_message, "🔍 Testing upload speed...")
     await asyncio.sleep(2)
     upload_speed = 80 + (time.time() % 30)
     
-    await status_message.edit_text(
+    await safe_edit_message(
+        status_message,
         f"🚀 <b>SPEED TEST RESULTS</b>\n\n"
         f"📥 <b>Download:</b> {download_speed:.2f} Mbps\n"
         f"📤 <b>Upload:</b> {upload_speed:.2f} Mbps\n"
@@ -972,7 +637,6 @@ def get_video_info():
         return jsonify({"error": "No URL provided"}), 400
     
     try:
-        # Try to get video headers for basic info
         response = requests.head(video_url, allow_redirects=True, timeout=10)
         content_length = response.headers.get('content-length', '0')
         content_type = response.headers.get('content-type', 'unknown')
@@ -986,35 +650,19 @@ def get_video_info():
         return jsonify({"error": str(e)}), 500
 
 def run_flask():
-    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 8000))  # Changed to match your logs
+    flask_app.run(host="0.0.0.0", port=port)
 
 def keep_alive():
     Thread(target=run_flask).start()
 
-async def start_user_client():
-    if user:
-        try:
-            await user.start()
-            logger.info("User client started.")
-        except Exception as e:
-            logger.error(f"Failed to start user client: {e}")
-            global USER_SESSION_STRING
-            USER_SESSION_STRING = None
-
-def run_user():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(start_user_client())
-    except Exception as e:
-        logger.error(f"Error in user client thread: {e}")
-
 if __name__ == "__main__":
     keep_alive()
-
-    if user:
-        logger.info("Starting user client...")
-        Thread(target=run_user).start()
+    
+    # Disable user client startup due to session error
+    # if user:
+    #     logger.info("Starting user client...")
+    #     Thread(target=run_user).start()
 
     logger.info("Starting bot client...")
     app.run()
