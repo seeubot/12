@@ -8,13 +8,13 @@ import math
 import json
 import requests
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from pyrogram.enums import ChatMemberStatus
 from pyrogram.errors import FloodWait
 import time
 import urllib.parse
 from urllib.parse import urlparse
-from flask import Flask, render_template
+from flask import Flask, render_template, request, jsonify
 from threading import Thread
 
 load_dotenv('config.env', override=True)
@@ -99,6 +99,9 @@ app = Client("jetbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 user = None
 SPLIT_SIZE = 2093796556  # Default split size ~2GB for bot API
 
+# Global variable to store video links for play button
+video_links = {}
+
 # Validate session string before initializing user client
 if USER_SESSION_STRING:
     try:
@@ -124,6 +127,40 @@ last_update_time = 0
 PROGRESS_BAR_FILLED = "█"
 PROGRESS_BAR_EMPTY = "░"
 PROGRESS_BAR_LENGTH = 15
+
+# Get the server URL from environment or use default
+SERVER_URL = os.environ.get('SERVER_URL', 'https://historic-frances-school1660440-b73ae1e5.koyeb.app')
+
+def create_play_button_markup(download_url, filename, file_id=None):
+    """Create inline keyboard with play video button and web app player"""
+    encoded_url = urllib.parse.quote(download_url, safe='')
+    encoded_filename = urllib.parse.quote(filename, safe='')
+    
+    # Direct play button
+    play_button = InlineKeyboardButton(
+        "🎬 Play Video", 
+        url=download_url
+    )
+    
+    # Web app player button
+    player_url = f"{SERVER_URL}/player?video={encoded_url}&title={encoded_filename}"
+    webapp_button = InlineKeyboardButton(
+        "📱 Open Player",
+        web_app=WebAppInfo(url=player_url)
+    )
+    
+    # Store the video link for callback queries
+    if file_id:
+        video_links[file_id] = {
+            'url': download_url,
+            'filename': filename,
+            'timestamp': datetime.now()
+        }
+    
+    return InlineKeyboardMarkup([
+        [play_button],
+        [webapp_button]
+    ])
 
 async def is_user_member(client, user_id):
     try:
@@ -532,7 +569,7 @@ async def handle_message(client: Client, message: Message):
         f"📤 <b>Starting upload to Telegram...</b>"
     )
 
-    # Determine target channel: regular users go to DUMP_CHAT_ID, admins can upload to Bigg Boss channel
+    # Determine target channel: regular users go to DUMP_CHAT_ID
     target_channel = DUMP_CHAT_ID
     
     caption = (
@@ -653,6 +690,9 @@ async def handle_message(client: Client, message: Message):
     async def handle_upload():
         file_size = os.path.getsize(file_path)
         
+        # Create play button markup with direct URL and filename
+        play_markup = create_play_button_markup(direct_url, filename)
+        
         if USER_SESSION_STRING and user is None:
             logger.warning("User client initialization failed, falling back to bot-only mode")
             await update_status(
@@ -680,6 +720,9 @@ async def handle_message(client: Client, message: Message):
             try:
                 for i, part in enumerate(split_files):
                     part_caption = f"{caption}\n\nPart {i+1}/{len(split_files)}"
+                    # Only add play button to the first part
+                    part_markup = play_markup if i == 0 else None
+                    
                     await update_status(
                         status_message,
                         f"📤 <b>UPLOADING PART {i+1}/{len(split_files)}</b>\n\n"
@@ -692,7 +735,8 @@ async def handle_message(client: Client, message: Message):
                             sent = await user.send_video(
                                 target_channel, part, 
                                 caption=part_caption,
-                                progress=upload_progress
+                                progress=upload_progress,
+                                reply_markup=part_markup
                             )
                             await app.copy_message(
                                 message.chat.id, target_channel, sent.id
@@ -702,21 +746,25 @@ async def handle_message(client: Client, message: Message):
                             sent = await client.send_video(
                                 target_channel, part,
                                 caption=part_caption,
-                                progress=upload_progress
+                                progress=upload_progress,
+                                reply_markup=part_markup
                             )
                             await client.send_video(
                                 message.chat.id, sent.video.file_id,
-                                caption=part_caption
+                                caption=part_caption,
+                                reply_markup=part_markup
                             )
                     else:
                         sent = await client.send_video(
                             target_channel, part,
                             caption=part_caption,
-                            progress=upload_progress
+                            progress=upload_progress,
+                            reply_markup=part_markup
                         )
                         await client.send_video(
                             message.chat.id, sent.video.file_id,
-                            caption=part_caption
+                            caption=part_caption,
+                            reply_markup=part_markup
                         )
                     
                     if os.path.exists(part) and part != file_path:
@@ -740,7 +788,8 @@ async def handle_message(client: Client, message: Message):
                     sent = await user.send_video(
                         target_channel, file_path,
                         caption=caption,
-                        progress=upload_progress
+                        progress=upload_progress,
+                        reply_markup=play_markup
                     )
                     await app.copy_message(
                         message.chat.id, target_channel, sent.id
@@ -750,21 +799,25 @@ async def handle_message(client: Client, message: Message):
                     sent = await client.send_video(
                         target_channel, file_path,
                         caption=caption,
-                        progress=upload_progress
+                        progress=upload_progress,
+                        reply_markup=play_markup
                     )
                     await client.send_video(
                         message.chat.id, sent.video.file_id,
-                        caption=caption
+                        caption=caption,
+                        reply_markup=play_markup
                     )
             else:
                 sent = await client.send_video(
                     target_channel, file_path,
                     caption=caption,
-                    progress=upload_progress
+                    progress=upload_progress,
+                    reply_markup=play_markup
                 )
                 await client.send_video(
                     message.chat.id, sent.video.file_id,
-                    caption=caption
+                    caption=caption,
+                    reply_markup=play_markup
                 )
         
         if os.path.exists(file_path):
@@ -895,11 +948,42 @@ async def speedtest_command(client: Client, message: Message):
         f"🏢 <b>ISP:</b> {['Cloudflare', 'Google Cloud', 'AWS', 'Digital Ocean'][int(time.time()) % 4]}"
     )
 
+# Flask App for Web Interface
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
     return render_template("index.html")
+
+@flask_app.route('/player')
+def video_player():
+    video_url = request.args.get('video', '')
+    title = request.args.get('title', 'Video Player')
+    
+    if not video_url:
+        return "No video URL provided", 400
+    
+    return render_template("player.html", video_url=video_url, title=title)
+
+@flask_app.route('/api/video-info')
+def get_video_info():
+    video_url = request.args.get('url', '')
+    if not video_url:
+        return jsonify({"error": "No URL provided"}), 400
+    
+    try:
+        # Try to get video headers for basic info
+        response = requests.head(video_url, allow_redirects=True, timeout=10)
+        content_length = response.headers.get('content-length', '0')
+        content_type = response.headers.get('content-type', 'unknown')
+        
+        return jsonify({
+            "size": content_length,
+            "type": content_type,
+            "url": video_url
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 def run_flask():
     flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
